@@ -50,6 +50,12 @@ python3 -m hqpick signal limit-up --start 2024-01-01 --end 2025-12-31 --out outp
 python3 -m hqpick run --picks output/picks.parquet --hold-days 2 --start 2024-01-01 --end 2025-12-31
 ```
 
+扫参数并带随机基线对照（行情只加载一次）：
+
+```bash
+python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 5,10 --baseline --start 2024-01-01 --end 2025-12-31
+```
+
 自带两个信号生成器：`limit-up`（T 日涨停）与 `random`（随机基线，用于判断
 策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出
 `[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
