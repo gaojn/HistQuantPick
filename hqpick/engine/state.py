@@ -16,7 +16,6 @@ class Bucket:
     buy_day: pd.Timestamp
     due_idx: int                                              # 应卖出的交易日序号（含）
     holdings: dict[str, float] = field(default_factory=dict)  # code → 股数
-    sleeve: int | None = None                                 # 所属资金份额；shared 模式为 None
 
 
 @dataclass
@@ -33,6 +32,7 @@ class ReplayState:
     sell_defer_suspended: int = 0    # 卖出日停牌顺延
     sell_defer_no_price: int = 0     # 行仍在但无有效价（长期停牌等）
     delist_forced_count: int = 0     # 退市强制核销笔数
+    writeoff_forced_count: int = 0   # 卖出受阻超时强制核销笔数（假设口径）
     no_cash_skip_days: int = 0       # 现金耗尽导致整桶跳过的天数
     underfunded_buy_days: int = 0    # 现金不足、建仓金额低于目标预算的天数（shared）
     funding_gap_sum: float = 0.0     # 累计资金缺口 / 目标预算
@@ -58,5 +58,6 @@ class ReplayRecords:
     port_values: pd.Series
     turnover: dict = field(default_factory=dict)              # 成交日 → 换手率
     cash_ratios: list[float] = field(default_factory=list)
+    frozen_ratios: list[float] = field(default_factory=list)   # 卡仓持仓占净值比
     holding_counts: dict = field(default_factory=dict)        # 交易日 → 持仓票数
     trades: list[dict] = field(default_factory=list)

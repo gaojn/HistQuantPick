@@ -40,8 +40,10 @@ def test_bucket_count_derivation(
 def test_explicit_n_buckets_overrides_derivation():
     cfg = ExecConfig(hold_days=2, n_buckets=2)
     assert cfg.buckets == 2
-    assert cfg.label.endswith("_b2i")          # i = isolated（默认资金模式）
-    assert ExecConfig(hold_days=2, n_buckets=2, capital_mode="shared").label.endswith("_b2s")
+    assert cfg.label.endswith("_b2slots")      # slots = 默认资金模式
+    assert ExecConfig(
+        hold_days=2, n_buckets=2, capital_mode="shared"
+    ).label.endswith("_b2shared")
 
 
 def test_derived_buckets_keep_entry_continuous():

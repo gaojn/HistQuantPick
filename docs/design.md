@@ -9,7 +9,7 @@ hqpick/
 │   └── panel.py           读 parquet 缓存 → 长表 / WideFrames 宽表集合
 ├── engine/
 │   ├── config.py          ExecConfig：时点、价格、桶数推导、同日次序判定
-│   ├── capital.py         资金账本：SharedBook（共享池）/ IsolatedBook（独立份额）
+│   ├── capital.py         资金账本：SlotBook（空槽均摊，默认）/ SharedBook（共享池）
 │   ├── frames.py          按配置裁剪日期、选出 entry/exit 价格视图
 │   ├── state.py           持仓桶、账户状态、执行计数器
 │   └── replay.py          PickBacktester：逐日重放主循环
@@ -40,11 +40,10 @@ picks [date, code]  ─┐
 逐交易日推进，每日四步：
 
 1. **建仓** — `entry_offset` 个交易日前的信号在今日成交，预算由资金账本给出
-   （shared 取 `min(总资产/桶数, 现金)`，isolated 取某个空闲份额的全部现金），桶内等权
+   （slots 取 `现金/(N−占用槽数)`，shared 取 `min(总资产/桶数, 现金)`），桶内等权
 2. **退市核销** — 面板整行消失的持仓按最近有效价强制卖出
 3. **到期卖出** — `due_idx ≤ i` 的桶，跌停/停牌顺延
 4. **收盘估值** — 现金 + 持仓市值（ffill 复权收盘价），随后触发账本收盘钩子
-   （isolated 在此释放已清空份额、全空时重新等分）
 
 第 1 步与第 2/3 步的**先后由成交时点决定**：卖出时点不晚于买入时点时先卖后买
 （回款当日可复用），否则先买后卖。见 `ExecConfig.sell_before_buy` 与
@@ -75,4 +74,4 @@ picks [date, code]  ─┐
 | `tests/test_timing.py` | 买卖日偏移、H 与 entry_offset 组合、前视拦截、末尾信号不可执行 |
 | `tests/test_execution_rules.py` | 涨停买不进、跌停/停牌顺延、退市核销、停牌≠退市、非对称费率、每日只数可变 |
 | `tests/test_buckets.py` | 桶数推导、同日次序、建仓不足诊断、卖出提前到开盘可满仓 |
-| `tests/test_capital_isolated.py` | 份额独立复利、用满不留余、空仓重新等分、无空闲份额跳过、两模式差异 |
+| `tests/test_capital_slots.py` | 空槽均摊公式、最后一槽全投、全空等分、无空槽跳过、卡仓不锁死现金、超时核销、两模式差异 |

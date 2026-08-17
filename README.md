@@ -64,14 +64,19 @@ python3 -m hqpick run --picks output/picks.parquet --hold-days 2 --start 2024-01
 `hold_days=H` 表示买入日到卖出日之间正好跨 H 个交易日。买入价与卖出价
 各自可选 `open / close / vwap`。
 
-**资金默认按份独立滚动**（`--capital-mode isolated`）：切成 N 份互不透支，每份用满自己的
-现金建仓、卖出只回自己账上，赚的那份下次投得多、亏的那份投得少；全部空仓时重新等分。
-另有 `shared` 共享现金池模式。两者差异与实测对比见 [docs/method.md](docs/method.md#资金模式)。
+**资金按槽位均摊**（默认 `--capital-mode slots`）：
 
-**资金分桶数不一定等于 H**：开盘买、收盘卖时，卖出当日的回款赶不上当日开盘
-建仓，资金要跨 H+1 个建仓时点，桶数自动取 H+1。详见 [docs/method.md](docs/method.md#资金分桶与资金利用率)——
-这一节解释了为什么「1/H 资金分配」在开盘买/收盘卖口径下必然留下 1/(H+1) 的
-现金闲置，以及怎么消除它。
+```
+budget = 可用现金 / (N − 已占用槽数)
+```
+
+一次建仓占一个槽，卖光释放。全空时天然等分，只剩一个空槽时全投、不留余额；
+某只票卡住只占住槽位，**不锁死现金**。**N 与 H 解耦**——H 管持有多久，
+N 管单次下多重（≈1/N），资金利用率约 (H+1)/N。详见
+[docs/method.md](docs/method.md#资金模式)。
+
+停牌/跌停卖不出默认无限顺延（贴近现实），另有 `--writeoff-stuck-days` 做敏感性分析，
+见 [docs/method.md](docs/method.md#停牌与卡仓)。
 
 ## 产物
 

@@ -5,10 +5,9 @@
 - T 日（信号日）收盘后给出选股列表（可为 0~任意只，每日只数可变）；
 - 买入日 = T + ``entry_offset``（默认 T+1），按 ``entry_price`` 成交，桶内等权；
 - 卖出日 = 买入日 + ``hold_days``（默认再持有 2 日），按 ``exit_price`` 成交；
-- 资金分桶：每日建仓金额 = min(前收盘总资产 / 桶数, 可用现金)。桶数由资金
-  周转周期推导，**不一定等于 H**——开盘买、收盘卖时回款跨 H+1 个建仓时点，
-  桶数取 H+1（见 ExecConfig.buckets 与 docs/method.md）。连续无信号时持仓
-  逐桶卖光、资金全部回到现金，下次有信号自然重新开始铺仓。
+- 资金按槽位均摊（默认 slots 模式）：建仓金额 = 可用现金 / (N - 已占用槽数)。
+  一次建仓占一个槽、卖光释放；全空时天然等分，只剩一个空槽时全投。
+  N 与 H 解耦：H 管持有多久，N 管单次下多重。详见 hqpick.engine.capital。
 - 同日执行次序由成交时点决定：卖出不晚于买入时先卖后买（回款当日复用），
   否则先买后卖。
 
@@ -18,6 +17,8 @@
 - 卖出日成交价跌停（raw ≤ limit_down × 100.1%）或停牌：顺延到下一可交易日；
 - 退市（当日面板中该票整行消失，价格与交易状态同时缺失）：不论是否到期，
   当日按最近有效收盘价强制核销、扣卖出费；
+- 卖出受阻超过 writeoff_stuck_days（默认 0=不启用）：按最近有效价强制核销，
+  属**假设口径**（钱并未真的回笼），仅供敏感性分析；
 - 估值用 ffill 后的复权收盘价，成交价不 ffill；
 - 成本非对称：买入 ``cost_buy``、卖出 ``cost_sell``。
 """
@@ -31,7 +32,7 @@ import pandas as pd
 
 from hqpick.constants import LIMIT_DOWN_TOL, LIMIT_UP_TOL, SUSPENDED
 from hqpick.data.panel import WideFrames
-from hqpick.engine.capital import NO_FREE_SLOT, IsolatedBook, make_book
+from hqpick.engine.capital import NO_FREE_SLOT, make_book
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.frames import AlignedFrames, align_frames
 from hqpick.engine.state import ReplayRecords, ReplayState
@@ -149,6 +150,9 @@ class PickBacktester:
             )
             if equity > 1e-8:
                 records.cash_ratios.append(state.book.cash / equity)
+                records.frozen_ratios.append(
+                    self._stuck_value(frames, state, day, i) / equity
+                )
                 if traded > 0:
                     records.turnover[day] = traded / equity
             state.book.on_close(i)
@@ -173,15 +177,15 @@ class PickBacktester:
     ) -> float:
         """按资金账本给出的预算建一桶，桶内等权。返回成交额。
 
-        预算来源随 capital_mode 而异：shared 取「总资产 / 桶数」并受现金约束，
-        isolated 取某个空闲 sleeve 的全部现金。
+        预算来源随 capital_mode 而异：slots 取「可用现金 / 剩余空槽数」，
+        shared 取「总资产 / 桶数」并受现金约束。
         """
         cfg = self.config
         day = frames.dates[i]
         plan = state.book.plan(state.equity, i)
         if not plan.ok:
             if plan.reject == NO_FREE_SLOT:
-                # isolated：所有 sleeve 都还占着仓（到期卖不出），本期信号跳过
+                # 槽位全被占用（含卡仓）→ 跳过，账本内部已计数
                 return 0.0
             # 现金耗尽（到期桶因跌停/停牌未能回款）→ 本期信号整桶跳过
             state.no_cash_skip_days += 1
@@ -287,22 +291,54 @@ class PickBacktester:
         status = frames.trade_status.loc[day]
         traded = 0.0
 
+        writeoff_days = self.config.writeoff_stuck_days
+        marked = frames.adj_close_marked.loc[day]
+
         for bucket in state.book.buckets:
             if bucket.due_idx > i or not bucket.holdings:
                 continue
             deferred = bucket.due_idx < i
+            stuck_days = i - bucket.due_idx
             for code in list(bucket.holdings):
                 px_adj = px_adj_row.get(code)
                 px_raw = px_raw_row.get(code)
+                blocked: str | None = None
                 if pd.isna(px_adj) or px_adj <= 0:
-                    state.sell_defer_no_price += 1
-                    continue
-                if status.get(code) == SUSPENDED:
-                    state.sell_defer_suspended += 1
-                    continue
-                down = limit_down.get(code)
-                if pd.notna(down) and pd.notna(px_raw) and px_raw <= down * LIMIT_DOWN_TOL:
-                    state.sell_defer_limit_down += 1
+                    blocked = "no_price"
+                elif status.get(code) == SUSPENDED:
+                    blocked = "suspended"
+                else:
+                    down = limit_down.get(code)
+                    if pd.notna(down) and pd.notna(px_raw) and px_raw <= down * LIMIT_DOWN_TOL:
+                        blocked = "limit_down"
+
+                if blocked is not None:
+                    # 卖出受阻超时 → 按最近有效价强制核销（假设口径，默认关闭）
+                    if writeoff_days > 0 and stuck_days >= writeoff_days:
+                        px_stuck = marked.get(code)
+                        if pd.notna(px_stuck) and px_stuck > 0:
+                            shares = bucket.holdings.pop(code)
+                            notional = shares * float(px_stuck)
+                            state.book.credit(
+                                bucket, notional * (1.0 - self.config.cost_sell)
+                            )
+                            state.writeoff_forced_count += 1
+                            traded += notional
+                            records.trades.append(
+                                {
+                                    "date": day, "signal_date": bucket.signal_day,
+                                    "code": code, "side": "sell_writeoff",
+                                    "price": float(px_stuck), "shares": shares,
+                                    "notional": notional,
+                                }
+                            )
+                            continue
+                    if blocked == "no_price":
+                        state.sell_defer_no_price += 1
+                    elif blocked == "suspended":
+                        state.sell_defer_suspended += 1
+                    else:
+                        state.sell_defer_limit_down += 1
                     continue
 
                 shares = bucket.holdings.pop(code)
@@ -319,6 +355,20 @@ class PickBacktester:
 
         state.book.discard_empty()
         return traded
+
+    @staticmethod
+    def _stuck_value(frames: AlignedFrames, state: ReplayState, day, i: int) -> float:
+        """已过到期日却仍未卖出的持仓市值——被停牌/跌停冻结的那部分资金。"""
+        marked = frames.adj_close_marked.loc[day]
+        value = 0.0
+        for bucket in state.book.buckets:
+            if bucket.due_idx >= i:
+                continue
+            for code, shares in bucket.holdings.items():
+                px = marked.get(code)
+                if pd.notna(px):
+                    value += shares * float(px)
+        return value
 
     @staticmethod
     def _holdings_value(frames: AlignedFrames, state: ReplayState, day) -> float:
@@ -379,14 +429,16 @@ class PickBacktester:
                 "no_price": state.sell_defer_no_price,
             },
             "delist_forced_count": state.delist_forced_count,
+            "writeoff_forced_count": state.writeoff_forced_count,
+            "writeoff_stuck_days": cfg.writeoff_stuck_days,
+            "avg_frozen_pct": (
+                float(np.mean(records.frozen_ratios)) if records.frozen_ratios else 0.0
+            ),
+            "max_frozen_pct": (
+                float(np.max(records.frozen_ratios)) if records.frozen_ratios else 0.0
+            ),
             "no_cash_skip_days": state.no_cash_skip_days,
-            "no_free_sleeve_days": (
-                state.book.no_free_slot_days
-                if isinstance(state.book, IsolatedBook) else 0
-            ),
-            "sleeve_reset_count": (
-                state.book.reset_count if isinstance(state.book, IsolatedBook) else 0
-            ),
+            "no_free_slot_days": getattr(state.book, "no_free_slot_days", 0),
             "underfunded_buy_days": state.underfunded_buy_days,
             "avg_funding_gap": (
                 state.funding_gap_sum / state.underfunded_buy_days
