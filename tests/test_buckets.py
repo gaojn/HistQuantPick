@@ -40,7 +40,8 @@ def test_bucket_count_derivation(
 def test_explicit_n_buckets_overrides_derivation():
     cfg = ExecConfig(hold_days=2, n_buckets=2)
     assert cfg.buckets == 2
-    assert cfg.label.endswith("_b2")
+    assert cfg.label.endswith("_b2i")          # i = isolated（默认资金模式）
+    assert ExecConfig(hold_days=2, n_buckets=2, capital_mode="shared").label.endswith("_b2s")
 
 
 def test_derived_buckets_keep_entry_continuous():
@@ -54,8 +55,8 @@ def test_derived_buckets_keep_entry_continuous():
     wide = make_wide(DATES, ["A"], close={"A": [10.0] * 20})
     picks = picks_frame([(d, "A") for d in DATES])
 
-    auto = _run(wide, picks, hold_days=2)                    # 桶数 3
-    forced = _run(wide, picks, hold_days=2, n_buckets=2)     # 强制 1/H
+    auto = _run(wide, picks, hold_days=2, capital_mode="shared")
+    forced = _run(wide, picks, hold_days=2, n_buckets=2, capital_mode="shared")
 
     assert auto.exec_stats["n_buckets"] == 3
     assert forced.exec_stats["n_buckets"] == 2
@@ -74,7 +75,10 @@ def test_sell_before_buy_recycles_cash_fully():
     """开盘买 + 开盘卖：回款当日复用，稳态可满仓，结构性闲置为 0。"""
     wide = make_wide(DATES, ["A"], close={"A": [10.0] * 20})
     picks = picks_frame([(d, "A") for d in DATES])
-    result = _run(wide, picks, hold_days=2, entry_price="open", exit_price="open")
+    result = _run(
+        wide, picks, hold_days=2, entry_price="open", exit_price="open",
+        capital_mode="shared",
+    )
 
     assert result.exec_stats["n_buckets"] == 2
     assert result.exec_stats["sell_before_buy"] is True
@@ -87,7 +91,7 @@ def test_no_skip_days_with_derived_buckets():
     """自动桶数下每日都有信号也不该出现现金耗尽跳过。"""
     wide = make_wide(DATES, ["A", "B"], close={"A": [10.0] * 20, "B": [10.0] * 20})
     picks = picks_frame([(d, c) for d in DATES for c in ("A", "B")])
-    result = _run(wide, picks, hold_days=3)
+    result = _run(wide, picks, hold_days=3, capital_mode="shared")
 
     assert result.exec_stats["n_buckets"] == 4
     assert result.exec_stats["no_cash_skip_days"] == 0

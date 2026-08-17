@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -15,15 +16,15 @@ class Bucket:
     buy_day: pd.Timestamp
     due_idx: int                                              # 应卖出的交易日序号（含）
     holdings: dict[str, float] = field(default_factory=dict)  # code → 股数
+    sleeve: int | None = None                                 # 所属资金份额；shared 模式为 None
 
 
 @dataclass
 class ReplayState:
-    """逐日推进中的账户状态。"""
+    """逐日推进中的账户状态。资金归属由 ``book`` 负责，这里只放执行计数。"""
 
-    cash: float
-    equity: float                                   # 上一收盘总资产（建仓预算基准）
-    buckets: list[Bucket] = field(default_factory=list)
+    equity: float                                   # 上一收盘总资产（shared 模式的预算基准）
+    book: Any = None                                # CapitalBook，由 PickBacktester 注入
 
     buy_fail_suspended: int = 0      # 买入日停牌
     buy_fail_limit_up: int = 0       # 买入日成交价涨停
@@ -33,8 +34,8 @@ class ReplayState:
     sell_defer_no_price: int = 0     # 行仍在但无有效价（长期停牌等）
     delist_forced_count: int = 0     # 退市强制核销笔数
     no_cash_skip_days: int = 0       # 现金耗尽导致整桶跳过的天数
-    underfunded_buy_days: int = 0    # 现金不足、建仓金额低于目标预算的天数
-    funding_gap_sum: float = 0.0     # 累计资金缺口 / 目标预算，用于量化建仓不足程度
+    underfunded_buy_days: int = 0    # 现金不足、建仓金额低于目标预算的天数（shared）
+    funding_gap_sum: float = 0.0     # 累计资金缺口 / 目标预算
     unexecutable_signals: list[pd.Timestamp] = field(default_factory=list)
 
     @property

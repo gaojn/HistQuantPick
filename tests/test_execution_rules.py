@@ -108,7 +108,7 @@ def test_cash_exhausted_skips_bucket():
     limit_down = {"A": [10.0] * 8}          # 收盘价恒等于跌停价 → 永远卖不出
     wide = make_wide(DATES, ["A"], close={"A": [10.0] * 8}, limit_down=limit_down)
     picks = picks_frame([(d, "A") for d in DATES[:4]])
-    result = _run(wide, picks, hold_days=1)
+    result = _run(wide, picks, hold_days=1, capital_mode="shared")
 
     assert result.exec_stats["no_cash_skip_days"] >= 1
     assert result.exec_stats["sell_defer_breakdown"]["limit_down"] >= 1

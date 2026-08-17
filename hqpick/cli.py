@@ -69,6 +69,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         entry_price=args.entry_price,
         exit_price=args.exit_price,
         n_buckets=args.n_buckets,
+        capital_mode=args.capital_mode,
         cost_buy=args.cost_buy,
         cost_sell=args.cost_sell,
         initial_value=args.initial_value,
@@ -121,6 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="信号日到买入日的交易日偏移，须 ≥1（默认 1，即 T+1）")
     pr.add_argument("--entry-price", choices=["open", "close", "vwap"], default="open")
     pr.add_argument("--exit-price", choices=["open", "close", "vwap"], default="close")
+    pr.add_argument("--capital-mode", choices=["isolated", "shared"], default="isolated",
+                    help="资金模式：isolated=各份独立滚动、空仓重新等分（默认）；"
+                         "shared=共享现金池，每日按总资产/桶数重算")
     pr.add_argument("--n-buckets", type=int, default=None,
                     help="资金分桶数；默认按资金周转周期推导（开盘买/收盘卖为 H+1）")
     pr.add_argument("--start", type=_parse_date, required=True)

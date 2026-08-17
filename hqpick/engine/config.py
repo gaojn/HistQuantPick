@@ -44,6 +44,7 @@ class ExecConfig:
     entry_price  : 买入成交价字段 open / close / vwap
     exit_price   : 卖出成交价字段 open / close / vwap
     n_buckets    : 资金分桶数；None 表示按上述规则自动推导
+    capital_mode : isolated（默认，各份独立滚动、空仓重新等分）/ shared（共享现金池）
     cost_buy     : 买入费率（默认 1‰）
     cost_sell    : 卖出费率（默认 2‰，含印花税）
     initial_value: 初始资金（元）
@@ -55,6 +56,7 @@ class ExecConfig:
     entry_price: str = "open"
     exit_price: str = "close"
     n_buckets: int | None = None
+    capital_mode: str = "isolated"
     cost_buy: float = DEFAULT_COST_BUY
     cost_sell: float = DEFAULT_COST_SELL
     initial_value: float = DEFAULT_INITIAL_VALUE
@@ -70,6 +72,10 @@ class ExecConfig:
         for name, value in (("entry_price", self.entry_price), ("exit_price", self.exit_price)):
             if value not in PRICE_FIELDS:
                 raise ValueError(f"{name} 须为 {sorted(PRICE_FIELDS)} 之一，当前为 {value!r}")
+        if self.capital_mode not in ("isolated", "shared"):
+            raise ValueError(
+                f"capital_mode 须为 isolated / shared，当前为 {self.capital_mode!r}"
+            )
         if self.n_buckets is not None and self.n_buckets < 1:
             raise ValueError(f"n_buckets 须 ≥ 1，当前为 {self.n_buckets}")
         if not 0.0 <= self.cost_buy < 1.0 or not 0.0 <= self.cost_sell < 1.0:
@@ -109,5 +115,5 @@ class ExecConfig:
             f"T+{self.entry_offset}{self.entry_price}"
             f"_hold{self.hold_days}"
             f"_T+{self.exit_offset}{self.exit_price}"
-            f"_b{self.buckets}"
+            f"_b{self.buckets}{'i' if self.capital_mode == 'isolated' else 's'}"
         )

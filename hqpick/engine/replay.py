@@ -31,9 +31,10 @@ import pandas as pd
 
 from hqpick.constants import LIMIT_DOWN_TOL, LIMIT_UP_TOL, SUSPENDED
 from hqpick.data.panel import WideFrames
+from hqpick.engine.capital import NO_FREE_SLOT, IsolatedBook, make_book
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.frames import AlignedFrames, align_frames
-from hqpick.engine.state import Bucket, ReplayRecords, ReplayState
+from hqpick.engine.state import ReplayRecords, ReplayState
 
 TRADE_COLUMNS = [
     "date", "signal_date", "code", "side", "price", "shares", "notional",
@@ -87,7 +88,8 @@ class PickBacktester:
             raise ValueError("选股表为空，无法回测")
 
         frames = align_frames(wide, cfg, start=min(picks_map))
-        state = ReplayState(cash=cfg.initial_value, equity=cfg.initial_value)
+        state = ReplayState(equity=cfg.initial_value)
+        state.book = make_book(cfg.capital_mode, cfg.buckets, cfg.initial_value)
         records = ReplayRecords(port_values=pd.Series(0.0, index=frames.dates))
         self._replay(frames, picks_map, state, records)
 
@@ -140,15 +142,16 @@ class PickBacktester:
             traded = sum(step(i) for step in steps)
 
             # 收盘估值
-            equity = state.cash + self._holdings_value(frames, state, day)
+            equity = state.book.cash + self._holdings_value(frames, state, day)
             records.port_values.iloc[i] = equity
             records.holding_counts[day] = sum(
-                len(b.holdings) for b in state.buckets
+                len(b.holdings) for b in state.book.buckets
             )
             if equity > 1e-8:
-                records.cash_ratios.append(state.cash / equity)
+                records.cash_ratios.append(state.book.cash / equity)
                 if traded > 0:
                     records.turnover[day] = traded / equity
+            state.book.on_close(i)
             state.equity = equity
 
         # 信号日太靠后、买入日超出回测区间的信号无法执行
@@ -168,22 +171,30 @@ class PickBacktester:
         signal_day: pd.Timestamp,
         codes: list[str],
     ) -> float:
-        """按「min(前收盘总资产 / 桶数, 现金)」建一桶，桶内等权。返回成交额。"""
+        """按资金账本给出的预算建一桶，桶内等权。返回成交额。
+
+        预算来源随 capital_mode 而异：shared 取「总资产 / 桶数」并受现金约束，
+        isolated 取某个空闲 sleeve 的全部现金。
+        """
         cfg = self.config
         day = frames.dates[i]
-        target = state.equity / cfg.buckets
-        budget = min(target, state.cash)
-        if budget <= 1e-8:
+        plan = state.book.plan(state.equity, i)
+        if not plan.ok:
+            if plan.reject == NO_FREE_SLOT:
+                # isolated：所有 sleeve 都还占着仓（到期卖不出），本期信号跳过
+                return 0.0
             # 现金耗尽（到期桶因跌停/停牌未能回款）→ 本期信号整桶跳过
             state.no_cash_skip_days += 1
             return 0.0
-        if target > 1e-8 and budget < target * 0.99:
+        if plan.target > 1e-8 and plan.budget < plan.target * 0.99:
             # 建仓不足：比整桶跳过更隐蔽，桶照建但金额远低于目标
             state.underfunded_buy_days += 1
-            state.funding_gap_sum += 1.0 - budget / target
-        alloc = budget / len(codes)
+            state.funding_gap_sum += 1.0 - plan.budget / plan.target
+        alloc = plan.budget / len(codes)
 
-        bucket = Bucket(signal_day=signal_day, buy_day=day, due_idx=i + cfg.hold_days)
+        bucket = state.book.open_bucket(
+            plan, signal_day=signal_day, buy_day=day, due_idx=i + cfg.hold_days
+        )
         traded = 0.0
         px_adj_row = frames.entry_adj.loc[day]
         px_raw_row = frames.entry_raw.loc[day]
@@ -207,7 +218,7 @@ class PickBacktester:
             notional = alloc / (1.0 + cfg.cost_buy)   # 含费出资 = alloc
             shares = notional / float(px_adj)
             bucket.holdings[code] = bucket.holdings.get(code, 0.0) + shares
-            state.cash -= alloc
+            state.book.charge(plan, alloc)
             traded += notional
             records.trades.append(
                 {
@@ -217,8 +228,7 @@ class PickBacktester:
                 }
             )
 
-        if bucket.holdings:
-            state.buckets.append(bucket)
+        state.book.discard_empty()
         return traded
 
     def _force_sell_delisted(
@@ -239,7 +249,7 @@ class PickBacktester:
         marked = frames.adj_close_marked.loc[day]
         traded = 0.0
 
-        for bucket in state.buckets:
+        for bucket in state.book.buckets:
             for code in list(bucket.holdings):
                 if pd.notna(close_row.get(code)) or pd.notna(status_row.get(code)):
                     continue                      # 仍在面板中（含停牌）
@@ -248,7 +258,7 @@ class PickBacktester:
                     continue                      # 无任何历史有效价，无法核销
                 shares = bucket.holdings.pop(code)
                 notional = shares * float(px)
-                state.cash += notional * (1.0 - self.config.cost_sell)
+                state.book.credit(bucket, notional * (1.0 - self.config.cost_sell))
                 state.delist_forced_count += 1
                 traded += notional
                 records.trades.append(
@@ -259,7 +269,7 @@ class PickBacktester:
                     }
                 )
 
-        state.buckets = [b for b in state.buckets if b.holdings]
+        state.book.discard_empty()
         return traded
 
     def _sell_due_buckets(
@@ -277,7 +287,7 @@ class PickBacktester:
         status = frames.trade_status.loc[day]
         traded = 0.0
 
-        for bucket in state.buckets:
+        for bucket in state.book.buckets:
             if bucket.due_idx > i or not bucket.holdings:
                 continue
             deferred = bucket.due_idx < i
@@ -297,7 +307,7 @@ class PickBacktester:
 
                 shares = bucket.holdings.pop(code)
                 notional = shares * float(px_adj)
-                state.cash += notional * (1.0 - self.config.cost_sell)
+                state.book.credit(bucket, notional * (1.0 - self.config.cost_sell))
                 traded += notional
                 records.trades.append(
                     {
@@ -307,14 +317,14 @@ class PickBacktester:
                     }
                 )
 
-        state.buckets = [b for b in state.buckets if b.holdings]
+        state.book.discard_empty()
         return traded
 
     @staticmethod
     def _holdings_value(frames: AlignedFrames, state: ReplayState, day) -> float:
         marked = frames.adj_close_marked.loc[day]
         value = 0.0
-        for bucket in state.buckets:
+        for bucket in state.book.buckets:
             for code, shares in bucket.holdings.items():
                 px = marked.get(code)
                 if pd.notna(px):
@@ -335,7 +345,7 @@ class PickBacktester:
         stuck_count = 0
         stuck_value = 0.0
         open_positions = 0
-        for bucket in state.buckets:
+        for bucket in state.book.buckets:
             for code, shares in bucket.holdings.items():
                 if shares <= 1e-10:
                     continue
@@ -351,6 +361,7 @@ class PickBacktester:
             "entry_offset": cfg.entry_offset,
             "entry_price": cfg.entry_price,
             "exit_price": cfg.exit_price,
+            "capital_mode": cfg.capital_mode,
             "n_buckets": cfg.buckets,
             "sell_before_buy": cfg.sell_before_buy,
             # 该口径下现金闲置的理论下限：卖出晚于买入时，永远有一桶回款在途
@@ -369,6 +380,13 @@ class PickBacktester:
             },
             "delist_forced_count": state.delist_forced_count,
             "no_cash_skip_days": state.no_cash_skip_days,
+            "no_free_sleeve_days": (
+                state.book.no_free_slot_days
+                if isinstance(state.book, IsolatedBook) else 0
+            ),
+            "sleeve_reset_count": (
+                state.book.reset_count if isinstance(state.book, IsolatedBook) else 0
+            ),
             "underfunded_buy_days": state.underfunded_buy_days,
             "avg_funding_gap": (
                 state.funding_gap_sum / state.underfunded_buy_days
@@ -380,13 +398,13 @@ class PickBacktester:
             "avg_cash_pct": (
                 float(np.mean(records.cash_ratios)) if records.cash_ratios else 0.0
             ),
-            "final_cash_pct": float(state.cash / final_nav) if final_nav > 1e-8 else 0.0,
+            "final_cash_pct": float(state.book.cash / final_nav) if final_nav > 1e-8 else 0.0,
             "avg_holding_count": (
                 float(np.mean(list(records.holding_counts.values())))
                 if records.holding_counts else 0.0
             ),
             "open_position_count": open_positions,
-            "open_bucket_count": len(state.buckets),
+            "open_bucket_count": len(state.book.buckets),
             "delisted_stuck_count": stuck_count,
             "stale_value_pct": (
                 float(stuck_value / final_nav) if final_nav > 1e-8 else 0.0
