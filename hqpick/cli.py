@@ -1,5 +1,6 @@
 """HistQuantPick 命令行入口。
 
+    hqpick signal lower-shadow --start 2020-01-01 --end 2026-06-30 --n 5 --out picks.parquet
     hqpick signal limit-up --start 2020-01-01 --end 2026-06-30 --out picks.parquet
     hqpick signal random   --start 2020-01-01 --end 2026-06-30 --n 10 --out picks.parquet
     hqpick run --picks picks.parquet --start 2020-01-01 --end 2026-06-30
@@ -17,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from hqpick.analysis.exposure import load_attributes
 from hqpick.constants import (
     DEFAULT_COST_BUY,
     DEFAULT_COST_SELL,
@@ -27,7 +29,11 @@ from hqpick.constants import (
 from hqpick.engine.config import ExecConfig
 from hqpick.grid import GridSpec, format_grid, run_grid
 from hqpick.run import load_picks, run_backtest, save_artifacts
-from hqpick.signals import build_limit_up_picks, build_random_picks
+from hqpick.signals import (
+    build_limit_up_picks,
+    build_lower_shadow_picks,
+    build_random_picks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +43,23 @@ def _parse_date(value: str) -> date:
 
 
 def cmd_signal(args: argparse.Namespace) -> None:
-    if args.kind == "limit-up":
+    if args.kind == "lower-shadow":
+        picks = build_lower_shadow_picks(
+            args.start, args.end,
+            max_per_day=args.n,
+            volume_window=args.volume_window,
+            min_shadow=args.min_shadow,
+            min_volume_ratio=args.min_volume_ratio,
+            exclude_st=not args.include_st,
+            min_list_days=args.min_list_days,
+            min_amount=args.min_amount if args.min_amount > 0 else 5e4,
+            min_float_mv=args.min_float_mv,
+            cache_dir=args.cache_dir,
+        )
+    elif args.kind == "limit-up":
         picks = build_limit_up_picks(
             args.start, args.end,
+            consecutive=args.consecutive,
             exclude_st=not args.include_st,
             min_list_days=args.min_list_days,
             min_amount=args.min_amount,
@@ -84,9 +104,14 @@ def cmd_run(args: argparse.Namespace) -> None:
     result, metrics = run_backtest(
         picks, args.start, args.end, config=config, cache_dir=args.cache_dir
     )
+    attributes = None
+    if not args.no_report:
+        attributes = load_attributes(args.start, args.end, cache_dir=args.cache_dir)
+
     out_dir = Path(args.out_dir or (DEFAULT_OUT_DIR / config.label))
     save_artifacts(result, metrics, out_dir, picks=picks,
-                   report=not args.no_report, title=args.title)
+                   report=not args.no_report, title=args.title,
+                   attributes=attributes)
 
     print(f"\n口径: {config.label}")
     print(json.dumps(metrics, ensure_ascii=False, indent=2, default=str))
@@ -154,16 +179,30 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     ps = sub.add_parser("signal", help="生成选股列表")
-    ps.add_argument("kind", choices=["limit-up", "random"], help="信号类型")
+    ps.add_argument("kind", choices=["lower-shadow", "limit-up", "random"],
+                    help="信号类型")
     ps.add_argument("--start", type=_parse_date, required=True)
     ps.add_argument("--end", type=_parse_date, required=True)
     ps.add_argument("--out", required=True, help="输出 parquet/csv 路径")
-    ps.add_argument("--n", type=int, default=10, help="random: 每日选股数")
+    ps.add_argument("--n", type=int, default=10,
+                    help="random / lower-shadow: 每日选股数（lower-shadow 建议 5）")
+    ps.add_argument("--volume-window", type=int, default=20,
+                    help="lower-shadow: 均量窗口（右对齐到 T-1，不含当日）")
+    ps.add_argument("--min-shadow", type=float, default=0.02,
+                    help="lower-shadow: 最小下影线比率")
+    ps.add_argument("--min-volume-ratio", type=float, default=1.0,
+                    help="lower-shadow: 最小放量倍数")
     ps.add_argument("--seed", type=int, default=42, help="random: 随机种子")
+    ps.add_argument("--consecutive", type=int, default=1,
+                    help="limit-up: 要求连续几天涨停（含当日），默认 1；"
+                         "2 即「连续两天涨停」")
     ps.add_argument("--max-per-day", type=int, default=None,
                     help="limit-up: 每日最多保留几只（按成交额降序）")
     ps.add_argument("--min-amount", type=float, default=0.0,
-                    help="limit-up: 当日最低成交额（元）")
+                    help="当日最低成交额，单位千元（缓存口径）；"
+                         "lower-shadow 默认 5e4 即 5000 万元")
+    ps.add_argument("--min-float-mv", type=float, default=0.0,
+                    help="lower-shadow: 最低流通市值（亿元），0=不过滤")
     ps.add_argument("--min-list-days", type=int, default=120, help="最少上市天数，剔次新")
     ps.add_argument("--include-st", action="store_true", help="不剔除 ST")
     ps.add_argument("--cache-dir", default=None, help="行情缓存目录，默认 HQPICK_CACHE")

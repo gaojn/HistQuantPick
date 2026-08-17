@@ -69,6 +69,7 @@ def save_artifacts(
     picks: pd.DataFrame | None = None,
     report: bool = True,
     title: str | None = None,
+    attributes: pd.DataFrame | None = None,
 ) -> Path:
     """落盘 nav / trades / round_trips / metrics / exec_stats / report.html。"""
     out = Path(out_dir)
@@ -106,6 +107,7 @@ def save_artifacts(
                 nav=result.nav, daily_ret=result.daily_ret, metrics=metrics,
                 exec_stats=result.exec_stats, trades=result.trades,
                 config_label=result.config.label, bm_nav=bm_nav, picks=picks,
+                attributes=attributes,
                 title=title or f"选股回测报告 · {result.config.label}",
                 cost_buy=result.config.cost_buy, cost_sell=result.config.cost_sell,
             ),

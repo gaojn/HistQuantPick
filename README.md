@@ -56,8 +56,9 @@ python3 -m hqpick run --picks output/picks.parquet --start 2024-01-01 --end 2025
 python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 2,5,10 --baseline --start 2024-01-01 --end 2025-12-31
 ```
 
-自带两个信号生成器：`limit-up`（T 日涨停）与 `random`（随机基线，用于判断
-策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出
+自带三个信号生成器：`lower-shadow`（下影线放量，截面打分取前 N）、
+`limit-up`（T 日涨停，`--consecutive 2` 可要求连续两天涨停）、
+`random`（随机基线，用于判断策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出
 `[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
 
 ## 口径
@@ -92,7 +93,7 @@ N 管单次下多重，资金利用率上限 (H+1)/N（实测约为其七成）�
 
 | 文件 | 内容 |
 |---|---|
-| `report.html` | 自包含 HTML 报告：净值、分年与分月、执行质量、逐笔归因（无外部依赖，可直接发人） |
+| `report.html` | 自包含 HTML 报告：净值、分年与分月、执行质量、逐笔归因、行业/市值分布（无外部依赖） |
 | `nav.csv` | 净值与日收益 |
 | `trades.csv` | 成交流水（side 区分正常卖出 / 顺延卖出 / 退市核销 / 卡仓核销） |
 | `round_trips.csv` | 逐笔完整交易：买卖配对后的单笔净收益、持有期、卖出方式 |

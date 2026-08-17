@@ -2,6 +2,15 @@
 
 缓存文件：``<cache_dir>/ashare_daily_<year>.parquet``。
 ``limit_up`` / ``limit_down`` 直接用缓存真实字段，不在本模块推算。
+
+字段单位（易踩坑，已实测核对）::
+
+    价格类 open/high/low/close/pre_close/vwap/adj_*   元
+    volume                                            手（1 手 = 100 股）
+    amount                                            千元
+    float_mv / total_mv / free_mv                     万元
+
+写过滤阈值时务必换算，例如「成交额 ≥ 5000 万元」应写 ``amount >= 5e4``。
 """
 
 from __future__ import annotations
@@ -38,7 +47,15 @@ def _years_in_range(t1: date, t2: date) -> list[int]:
     return list(range(t1.year, t2.year + 1))
 
 
-def _cache_files(t1: date, t2: date, cache_dir: Path) -> list[Path]:
+def _cache_files(
+    t1: date, t2: date, cache_dir: Path, require_all: bool = True
+) -> list[Path]:
+    """列出区间覆盖的缓存文件。
+
+    ``require_all=False`` 时容忍缺失年份，用于滚动窗口的 warmup 预热段——
+    从缓存最早年份附近起算时，预热会向前越过可用范围，这不该让回测失败。
+    但一个文件都找不到仍然报错。
+    """
     paths: list[Path] = []
     missing: list[int] = []
     for year in _years_in_range(t1, t2):
@@ -47,7 +64,7 @@ def _cache_files(t1: date, t2: date, cache_dir: Path) -> list[Path]:
             paths.append(path)
         else:
             missing.append(year)
-    if missing:
+    if missing and (require_all or not paths):
         raise FileNotFoundError(
             f"缺少本地缓存: {', '.join(str(y) for y in missing)} 年。"
             f"请确认 {cache_dir} 下存在对应年份的 parquet。"
@@ -55,15 +72,27 @@ def _cache_files(t1: date, t2: date, cache_dir: Path) -> list[Path]:
     return paths
 
 
+def ensure_years_available(
+    t1: date, t2: date, cache_dir: Path | str | None = None
+) -> None:
+    """校验主回测区间的缓存年份齐全（预热段不在此列）。"""
+    cache_path = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
+    _cache_files(t1, t2, cache_path, require_all=True)
+
+
 def load_panel(
     t1: date,
     t2: date,
     columns: Sequence[str] | None = None,
     cache_dir: Path | str | None = None,
+    require_all_years: bool = True,
 ) -> pl.DataFrame:
-    """加载 [t1, t2] 闭区间的行情长表，按 (date, code) 升序。"""
+    """加载 [t1, t2] 闭区间的行情长表，按 (date, code) 升序。
+
+    ``require_all_years=False`` 容忍区间内缺失的年份，供滚动窗口预热使用。
+    """
     cache_path = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
-    files = _cache_files(t1, t2, cache_path)
+    files = _cache_files(t1, t2, cache_path, require_all=require_all_years)
     logical = list(dict.fromkeys(["code", "date", *(columns or BACKTEST_COLUMNS)]))
 
     available = set(pl.scan_parquet(files[0]).collect_schema().names())

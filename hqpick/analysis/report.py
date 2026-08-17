@@ -13,6 +13,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from hqpick.analysis.exposure import (
+    attach_attributes,
+    industry_stats,
+    mv_bucket_stats,
+    mv_summary,
+)
 from hqpick.analysis.periodic import (
     month_of_year_stats,
     monthly_matrix,
@@ -272,6 +278,36 @@ def _matrix_table(matrix: pd.DataFrame) -> str:
     )
 
 
+def _barh(labels: list[str], values: list[float], width: int = 1040,
+          row_h: int = 22, color: str = "#2a78d6") -> str:
+    """横向条形图：标签 + 条 + 数值，用于占比构成。"""
+    if not labels:
+        return ""
+    pad_l, pad_r = 132, 56
+    top = max(values) or 1.0
+    height = row_h * len(labels) + 8
+    plot_w = width - pad_l - pad_r
+
+    parts = [f'<svg viewBox="0 0 {width} {height}" role="img">']
+    for i, (lab, val) in enumerate(zip(labels, values, strict=False)):
+        y = i * row_h + 4
+        bar_w = plot_w * (float(val) / top)
+        parts.append(
+            f'<text x="{pad_l - 8}" y="{y + row_h * 0.65:.0f}" text-anchor="end" '
+            f'font-size="12" fill="#1a1a1a">{html.escape(str(lab))}</text>'
+        )
+        parts.append(
+            f'<rect x="{pad_l}" y="{y + 3}" width="{max(bar_w, 1):.1f}" '
+            f'height="{row_h - 8}" fill="{color}" rx="2"/>'
+        )
+        parts.append(
+            f'<text x="{pad_l + bar_w + 6:.1f}" y="{y + row_h * 0.65:.0f}" '
+            f'font-size="11" fill="#6b6b6b">{val * 100:.1f}%</text>'
+        )
+    parts.append("</svg>")
+    return f"<figure>{''.join(parts)}</figure>"
+
+
 @dataclass
 class ReportInputs:
     """报告所需的全部数据。"""
@@ -284,6 +320,7 @@ class ReportInputs:
     config_label: str
     bm_nav: pd.Series | None = None
     picks: pd.DataFrame | None = None
+    attributes: pd.DataFrame | None = None    # [date, code, float_mv, industry_l1]
     title: str = "选股回测报告"
     cost_buy: float = 0.0
     cost_sell: float = 0.0
@@ -450,6 +487,64 @@ def _section_periodic(inp: ReportInputs) -> str:
     )
 
 
+def _section_exposure(inp: ReportInputs) -> str:
+    if inp.attributes is None or inp.attributes.empty:
+        return (
+            '<p class="sub">（未提供行业/市值数据，跳过该节。'
+            "命令行运行时会自动加载。）</p>"
+        )
+    rt = build_round_trips(
+        inp.trades, inp.cost_buy, inp.cost_sell, calendar=inp.nav.index
+    )
+    if rt.empty:
+        return '<p class="sub">（没有完整的往返交易）</p>'
+
+    rt = attach_attributes(rt, inp.attributes)
+    ind = industry_stats(rt, top=15)
+    mv = mv_bucket_stats(rt)
+    summary = mv_summary(rt)
+
+    pct = lambda v: _signed(v)                                      # noqa: E731
+    pct1 = lambda v: _fmt_pct(v, 1)                                 # noqa: E731
+    money = lambda v: _signed(v, lambda x: _fmt_num(x, 0))          # noqa: E731
+    count = lambda v: f"{int(v):,}" if pd.notna(v) else "—"         # noqa: E731
+    fmt = {
+        "交易笔数": count, "笔数占比": pct1, "资金占比": pct1,
+        "逐笔胜率": pct1, "平均单笔": pct, "合计盈亏": money,
+    }
+
+    cards = ""
+    if summary:
+        cards = '<div class="cards">' + "".join(
+            _card(k, f"{v:,.0f} 亿")
+            for k, v in (
+                ("市值中位", summary["中位"]), ("市值均值", summary["均值"]),
+                ("5% 分位", summary["p05"]), ("25% 分位", summary["p25"]),
+                ("75% 分位", summary["p75"]), ("95% 分位", summary["p95"]),
+            )
+        ) + "</div>"
+
+    ind_chart = ""
+    if not ind.empty:
+        ind_chart = _barh(list(ind.index), ind["资金占比"].tolist())
+    mv_chart = ""
+    if not mv.empty:
+        mv_chart = _barh(list(mv.index), mv["资金占比"].tolist(), color="#eb6834")
+
+    missing = ""
+    n_missing = int(rt["industry_l1"].isna().sum())
+    if n_missing:
+        missing = (
+            f'<div class="note">有 {n_missing} 笔交易未匹配到行业/市值'
+            f"（占 {n_missing / len(rt):.1%}），已从本节统计中剔除。</div>"
+        )
+    return (
+        "<h3>流通市值分布</h3>" + cards + mv_chart + _table(mv, fmt)
+        + "<h3>行业分布（按资金占比）</h3>" + ind_chart + _table(ind, fmt)
+        + missing
+    )
+
+
 def _section_config(inp: ReportInputs) -> str:
     st = inp.exec_stats
     rows = {
@@ -503,6 +598,8 @@ def render_report(inp: ReportInputs) -> str:
 {_section_execution(inp)}
 <h2>逐笔归因</h2>
 {_section_trades(inp)}
+<h2>交易分布</h2>
+{_section_exposure(inp)}
 <h2>回测口径</h2>
 {_section_config(inp)}
 </div></body></html>
