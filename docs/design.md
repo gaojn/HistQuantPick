@@ -19,6 +19,7 @@ hqpick/
 ├── analysis/
 │   ├── metrics.py         净值指标、等权基准
 │   ├── trades.py          成交流水 → 逐笔完整交易，胜率/赔率/分组统计
+│   ├── periodic.py        分年表现、月度收益矩阵、月份效应
 │   └── report.py          自包含 HTML 报告（内联 SVG 图表，零外部依赖）
 ├── grid.py                参数网格扫描：笛卡尔积展开 + 随机基线对照
 ├── run.py                 编排：加载 → 回测 → 落盘
@@ -77,6 +78,7 @@ picks [date, code]  ─┐
 | `tests/test_timing.py` | 买卖日偏移、H 与 entry_offset 组合、前视拦截、末尾信号不可执行 |
 | `tests/test_execution_rules.py` | 涨停买不进、跌停/停牌顺延、退市核销、停牌≠退市、非对称费率、每日只数可变 |
 | `tests/test_buckets.py` | 桶数推导、同日次序、建仓不足诊断、卖出提前到开盘可满仓 |
+| `tests/test_periodic.py` | 月收益复利、矩阵缺月留空、超额口径、逐笔按买入年份归属、默认口径锁定 |
 | `tests/test_trades.py` | 买卖配对、同票跨信号日不串配、费率、未平仓剔除、分组统计 |
 | `tests/test_report.py` | 自包含性（无外部资源）、各节存在、跳过建仓与假设口径的警示、HTML 转义 |
 | `tests/test_grid.py` | 网格展开、基线对照口径一致、N 与利用率的单调关系 |

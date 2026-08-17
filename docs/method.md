@@ -6,11 +6,12 @@
 
 ```
 买入日 = T + entry_offset          默认 entry_offset = 1
-卖出日 = 买入日 + hold_days         默认 hold_days = 2 → T+3
+卖出日 = 买入日 + hold_days         默认 hold_days = 1 → T+2
 ```
 
 `hold_days=H` 的含义是**买入日到卖出日之间正好跨 H 个交易日**。默认口径
-（H=2、开盘买、收盘卖）即：T 日收盘后出信号 → T+1 开盘买 → T+3 收盘卖。
+（H=1、开盘买、收盘卖）即：T 日收盘后出信号 → T+1 开盘买 → T+2 收盘卖，
+槽位数自动推导为 H+1 = 2。
 
 `entry_offset` 强制 ≥1。T 日信号在 T 日成交属于前视，构造 `ExecConfig` 时直接报错。
 

@@ -13,6 +13,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from hqpick.analysis.periodic import (
+    month_of_year_stats,
+    monthly_matrix,
+    yearly_stats,
+)
 from hqpick.analysis.trades import (
     build_round_trips,
     monthly_stats,
@@ -46,6 +51,8 @@ th,td { text-align:right; padding:6px 10px; border-bottom:1px solid var(--line);
 th { color:var(--muted); font-weight:500; }
 th:first-child,td:first-child { text-align:left; }
 .pos { color:var(--pos); } .neg { color:var(--neg); }
+td.heat { font-weight:500; }
+td.na { color:#c3c2b7; }
 .scroll { overflow-x:auto; }
 .note { background:#fbf7e8; border:1px solid #ecdca6; border-radius:8px;
         padding:10px 14px; font-size:13px; margin:16px 0; }
@@ -231,6 +238,40 @@ def _histogram(counts: np.ndarray, edges: np.ndarray, height: int = 200,
     return f"<figure>{''.join(parts)}<figcaption>单笔净收益分布（笔数）</figcaption></figure>"
 
 
+def _heat_cell(v, scale: float) -> str:
+    """月度矩阵单元格：正绿负红，深浅按 |v|/scale。"""
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return '<td class="na">—</td>'
+    v = float(v)
+    if abs(v) < 1e-12:
+        return '<td class="heat">0.00%</td>'
+    alpha = min(abs(v) / scale, 1.0) * 0.42 if scale > 0 else 0.0
+    rgb = "29,158,117" if v > 0 else "216,74,63"
+    ink = "#0f6e56" if v > 0 else "#a32d2d"
+    return (
+        f'<td class="heat" style="background:rgba({rgb},{alpha:.3f});color:{ink}">'
+        f"{v * 100:.2f}%</td>"
+    )
+
+
+def _matrix_table(matrix: pd.DataFrame) -> str:
+    """月度收益矩阵，按数值上色。"""
+    if matrix is None or matrix.empty:
+        return '<p class="sub">（无数据）</p>'
+    vals = matrix.to_numpy(dtype=float)
+    finite = vals[np.isfinite(vals)]
+    scale = float(np.percentile(np.abs(finite), 90)) if len(finite) else 0.0
+    head = "".join(f"<th>{html.escape(str(c))}</th>" for c in matrix.columns)
+    rows = []
+    for idx, row in matrix.iterrows():
+        cells = "".join(_heat_cell(row[c], scale) for c in matrix.columns)
+        rows.append(f"<tr><td>{html.escape(str(idx))}</td>{cells}</tr>")
+    return (
+        f'<div class="scroll"><table><thead><tr><th>年份</th>{head}</tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
 @dataclass
 class ReportInputs:
     """报告所需的全部数据。"""
@@ -375,6 +416,40 @@ def _section_trades(inp: ReportInputs) -> str:
     )
 
 
+def _section_periodic(inp: ReportInputs) -> str:
+    rt = build_round_trips(
+        inp.trades, inp.cost_buy, inp.cost_sell, calendar=inp.nav.index
+    )
+    bm_ret = inp.bm_nav.pct_change().fillna(0.0) if inp.bm_nav is not None else None
+    yearly = yearly_stats(
+        inp.daily_ret, bm_ret, rt, inp.metrics.get("risk_free", 0.02)
+    )
+    matrix = monthly_matrix(inp.daily_ret, bm_ret)
+    moy = month_of_year_stats(inp.daily_ret)
+
+    pct = lambda v: _signed(v)                                      # noqa: E731
+    pct1 = lambda v: _fmt_pct(v, 1)                                 # noqa: E731
+    num = lambda v: _fmt_num(v)                                     # noqa: E731
+    count = lambda v: f"{int(v):,}" if pd.notna(v) else "—"         # noqa: E731
+    yearly_fmt = {
+        "收益": pct, "基准": pct, "超额": pct, "波动": pct1,
+        "最大回撤": pct1, "Sharpe": num, "日胜率": pct1,
+        "交易日": count, "交易笔数": count,
+        "逐笔胜率": pct1, "平均单笔": pct,
+    }
+    moy_fmt = {
+        "平均月收益": pct, "中位月收益": pct, "为正比例": pct1,
+        "最好": pct, "最差": pct, "样本年数": count,
+    }
+    return (
+        "<h3>分年表现</h3>" + _table(yearly, yearly_fmt)
+        + "<h3>月度收益矩阵</h3>" + _matrix_table(matrix)
+        + '<h3>月份效应</h3><p class="sub">每个自然月份只有很少几年的样本，'
+        + "只用来看收益是否集中在少数月份，不能据此下季节性结论。</p>"
+        + _table(moy, moy_fmt)
+    )
+
+
 def _section_config(inp: ReportInputs) -> str:
     st = inp.exec_stats
     rows = {
@@ -422,6 +497,8 @@ def render_report(inp: ReportInputs) -> str:
 <h2>净值表现</h2>
 {_section_overview(inp)}
 {_section_nav(inp)}
+<h2>分年与分月</h2>
+{_section_periodic(inp)}
 <h2>执行质量</h2>
 {_section_execution(inp)}
 <h2>逐笔归因</h2>

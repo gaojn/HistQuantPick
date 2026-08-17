@@ -2,8 +2,8 @@
 
     hqpick signal limit-up --start 2020-01-01 --end 2026-06-30 --out picks.parquet
     hqpick signal random   --start 2020-01-01 --end 2026-06-30 --n 10 --out picks.parquet
-    hqpick run --picks picks.parquet --hold-days 2 --start 2020-01-01 --end 2026-06-30
-    hqpick grid --picks picks.parquet --n-buckets 3,5,10 --hold-days 1,2,5 --baseline random
+    hqpick run --picks picks.parquet --start 2020-01-01 --end 2026-06-30
+    hqpick grid --picks picks.parquet --hold-days 1,2,5 --n-buckets 2,5,10 --baseline random
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ def cmd_grid(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hqpick",
-        description="A 股选股列表回测：T 日信号 → T+1 成交 → 持有 H 日 → 卖出，资金分 H 桶",
+        description="A 股选股列表回测：T 日信号 → T+1 开盘买 → T+2 收盘卖（默认），资金按空槽均摊",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--log-level", default="INFO")
@@ -171,8 +171,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("run", help="选股列表 → 回测")
     pr.add_argument("--picks", required=True, help="选股长表 parquet/csv，列 [date, code]")
-    pr.add_argument("--hold-days", type=int, default=2,
-                    help="持有期 H：买入日后再持有 H 个交易日卖出，资金分 H 桶（默认 2）")
+    pr.add_argument("--hold-days", type=int, default=1,
+                    help="持有期 H：买入日后再跨 H 个交易日卖出"
+                         "（默认 1，即 T+1 开盘买、T+2 收盘卖）")
     pr.add_argument("--entry-offset", type=int, default=1,
                     help="信号日到买入日的交易日偏移，须 ≥1（默认 1，即 T+1）")
     pr.add_argument("--entry-price", choices=["open", "close", "vwap"], default="open")
@@ -201,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--picks", required=True, help="选股长表 parquet/csv")
     pg.add_argument("--start", type=_parse_date, required=True)
     pg.add_argument("--end", type=_parse_date, required=True)
-    pg.add_argument("--hold-days", default="2", help="逗号分隔，如 1,2,3,5")
+    pg.add_argument("--hold-days", default="1", help="逗号分隔，如 1,2,3,5")
     pg.add_argument("--n-buckets", default="", help="逗号分隔，如 3,5,10；留空=按 H 推导")
     pg.add_argument("--entry-price", default="open", help="逗号分隔，如 open,close")
     pg.add_argument("--exit-price", default="close", help="逗号分隔")

@@ -21,10 +21,11 @@ class ExecConfig:
     时点语义（signal_idx = 信号日 T 在交易日历中的序号）::
 
         买入日 = T + entry_offset            默认 T+1
-        卖出日 = 买入日 + hold_days           默认 T+1+H
+        卖出日 = 买入日 + hold_days           默认 T+2
 
-    即 ``hold_days=H`` 表示买入日到卖出日之间正好跨 H 个交易日；
-    H=2、entry_price=open、exit_price=close 即「T+1 开盘买、T+3 收盘卖」。
+    即 ``hold_days=H`` 表示买入日到卖出日之间正好跨 H 个交易日。
+    **默认口径**：H=1、开盘买、收盘卖 → 「T+1 开盘买、T+2 收盘卖」，
+    槽位数自动推导为 H+1 = 2。
 
     资金分桶
     --------
@@ -39,7 +40,7 @@ class ExecConfig:
 
     Attributes
     ----------
-    hold_days    : 持有期 H（交易日）
+    hold_days    : 持有期 H（交易日），默认 1
     entry_offset : 信号日到买入日的交易日偏移，必须 ≥1（禁止 T 日成交，防前视）
     entry_price  : 买入成交价字段 open / close / vwap
     exit_price   : 卖出成交价字段 open / close / vwap
@@ -54,7 +55,7 @@ class ExecConfig:
     risk_free    : 年化无风险利率（Sharpe 用）
     """
 
-    hold_days: int = 2
+    hold_days: int = 1
     entry_offset: int = 1
     entry_price: str = "open"
     exit_price: str = "close"

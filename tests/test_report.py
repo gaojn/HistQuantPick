@@ -54,8 +54,19 @@ def test_report_is_self_contained(run_result):
 
 def test_report_contains_all_sections(run_result):
     doc = render_report(_inputs(run_result))
-    for section in ("净值表现", "执行质量", "逐笔归因", "回测口径"):
+    for section in ("净值表现", "分年与分月", "执行质量", "逐笔归因", "回测口径"):
         assert section in doc
+
+
+def test_report_renders_yearly_and_monthly(run_result):
+    doc = render_report(_inputs(run_result))
+
+    assert "分年表现" in doc
+    assert "月度收益矩阵" in doc
+    assert "月份效应" in doc
+    assert "全年" in doc and "1月" in doc
+    # 月度矩阵按数值上色
+    assert "background:rgba(" in doc
 
 
 def test_report_renders_key_metrics_and_charts(run_result):

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class GridSpec:
     """要扫的参数轴。每个轴给一组取值，笛卡尔积展开。"""
 
-    hold_days: Sequence[int] = (2,)
+    hold_days: Sequence[int] = (1,)
     n_buckets: Sequence[int | None] = (None,)
     entry_price: Sequence[str] = ("open",)
     exit_price: Sequence[str] = ("close",)

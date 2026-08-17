@@ -47,13 +47,13 @@ python3 -m hqpick signal limit-up --start 2024-01-01 --end 2025-12-31 --out outp
 ```
 
 ```bash
-python3 -m hqpick run --picks output/picks.parquet --hold-days 2 --start 2024-01-01 --end 2025-12-31
+python3 -m hqpick run --picks output/picks.parquet --start 2024-01-01 --end 2025-12-31
 ```
 
 扫参数并带随机基线对照（行情只加载一次）：
 
 ```bash
-python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 5,10 --baseline --start 2024-01-01 --end 2025-12-31
+python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 2,5,10 --baseline --start 2024-01-01 --end 2025-12-31
 ```
 
 自带两个信号生成器：`limit-up`（T 日涨停）与 `random`（随机基线，用于判断
@@ -64,8 +64,10 @@ python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-bucket
 
 ```
 买入日 = T + entry_offset      默认 T+1，必须 ≥1（禁止 T 日成交）
-卖出日 = 买入日 + hold_days     默认 T+3（H=2）
+卖出日 = 买入日 + hold_days     默认 T+2（H=1）
 ```
+
+**默认口径**：T+1 开盘买 → T+2 收盘卖，槽位数自动推导为 2。
 
 `hold_days=H` 表示买入日到卖出日之间正好跨 H 个交易日。买入价与卖出价
 各自可选 `open / close / vwap`。
@@ -90,7 +92,7 @@ N 管单次下多重，资金利用率上限 (H+1)/N（实测约为其七成）�
 
 | 文件 | 内容 |
 |---|---|
-| `report.html` | 自包含 HTML 报告：净值、执行质量、逐笔归因（无外部依赖，可直接发人） |
+| `report.html` | 自包含 HTML 报告：净值、分年与分月、执行质量、逐笔归因（无外部依赖，可直接发人） |
 | `nav.csv` | 净值与日收益 |
 | `trades.csv` | 成交流水（side 区分正常卖出 / 顺延卖出 / 退市核销 / 卡仓核销） |
 | `round_trips.csv` | 逐笔完整交易：买卖配对后的单笔净收益、持有期、卖出方式 |
