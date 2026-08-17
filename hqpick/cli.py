@@ -85,7 +85,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         picks, args.start, args.end, config=config, cache_dir=args.cache_dir
     )
     out_dir = Path(args.out_dir or (DEFAULT_OUT_DIR / config.label))
-    save_artifacts(result, metrics, out_dir, picks=picks)
+    save_artifacts(result, metrics, out_dir, picks=picks,
+                   report=not args.no_report, title=args.title)
 
     print(f"\n口径: {config.label}")
     print(json.dumps(metrics, ensure_ascii=False, indent=2, default=str))
@@ -190,6 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--cost-sell", type=float, default=DEFAULT_COST_SELL)
     pr.add_argument("--initial-value", type=float, default=DEFAULT_INITIAL_VALUE)
     pr.add_argument("--risk-free", type=float, default=DEFAULT_RISK_FREE)
+    pr.add_argument("--no-report", action="store_true", help="不生成 HTML 报告")
+    pr.add_argument("--title", default=None, help="报告标题")
     pr.add_argument("--out-dir", default=None, help="产物目录，默认 output/<口径标签>")
     pr.add_argument("--cache-dir", default=None, help="行情缓存目录，默认 HQPICK_CACHE")
     pr.set_defaults(func=cmd_run)
