@@ -364,11 +364,16 @@ class PickBacktester:
 
     @staticmethod
     def _stuck_value(frames: AlignedFrames, state: ReplayState, day, i: int) -> float:
-        """已过到期日却仍未卖出的持仓市值——被停牌/跌停冻结的那部分资金。"""
+        """已过到期日却仍未卖出的持仓市值——被停牌/跌停冻结的那部分资金。
+
+        判定口径须与 ``_sell_due_buckets`` 一致（``due_idx <= i`` 即到期）：
+        到期当天若卖出尝试已失败（跌停/停牌），当天收盘时就该计入冻结，
+        不能等到次日才计入——否则每次卡仓都会少算最早的一天。
+        """
         marked = frames.adj_close_marked.loc[day]
         value = 0.0
         for bucket in state.book.buckets:
-            if bucket.due_idx >= i:
+            if bucket.due_idx > i:
                 continue
             for code, shares in bucket.holdings.items():
                 px = marked.get(code)

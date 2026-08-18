@@ -64,6 +64,20 @@ picks [date, code]  ─┐
 多个桶中（不同信号日买入、到期日不同），必须分别记账才能各自按期卖出。
 估值与权重计算时再跨桶聚合。
 
+## 工程审计记录
+
+2026-08-18，一个不携带本项目对话历史的独立 agent 对 `engine/capital.py` +
+`engine/replay.py` 做过一轮专项审计（资金守恒、前视偏差、边界情形、状态可变性、
+槽位释放时机、同日买卖顺序），方法是实际写 fuzz 脚本跑数据验证而非只读代码。
+
+结论：**资金核算逻辑可信**，60+100 组随机场景（覆盖 N=1~5、两种资金模式、
+退市/停牌/涨跌停/writeoff 各种组合）均未发现资金凭空产生或消失、现金转负、
+前视偏差。找到一处真实但影响面很小的 bug：`_stuck_value`（旧 replay.py:371）
+的 `due_idx >= i` 应为 `due_idx > i`，导致卡仓统计漏计到期当天一天——**只污染
+`avg_frozen_pct`/`max_frozen_pct` 这个诊断指标，不影响 nav/现金/持仓量**。
+已修复并补充回归测试（`test_frozen_value_counts_from_due_day_itself_not_next_day`），
+同时把审计用的独立重算方法沉淀为常驻测试（`tests/test_conservation.py`）。
+
 ## 设计约束
 
 - **不依赖 HistQuantOpt 的代码**，只共享行情缓存目录。执行规则靠文档与测试对齐，
@@ -92,4 +106,5 @@ picks [date, code]  ─┐
 | `tests/test_trades.py` | 买卖配对、同票跨信号日不串配、费率、未平仓剔除、分组统计 |
 | `tests/test_report.py` | 自包含性（无外部资源）、各节存在、跳过建仓与假设口径的警示、HTML 转义 |
 | `tests/test_grid.py` | 网格展开、基线对照口径一致、N 与利用率的单调关系 |
-| `tests/test_capital_slots.py` | 空槽均摊公式、最后一槽全投、全空等分、无空槽跳过、卡仓不锁死现金、超时核销、两模式差异 |
+| `tests/test_capital_slots.py` | 空槽均摊公式、最后一槽全投、全空等分、无空槽跳过、卡仓不锁死现金、超时核销、两模式差异、冻结市值 off-by-one 回归用例 |
+| `tests/test_conservation.py` | **资金守恒**：从 `trades` 流水独立重算期末现金+持仓市值，与引擎报告的 nav 交叉核对（不依赖引擎内部状态，见文件头注释的方法说明），覆盖涨跌停/停牌/退市/writeoff/两种资金模式/费率组合/买卖时点组合/N=1 |

@@ -256,3 +256,31 @@ def test_writeoff_after_threshold_releases_slot():
     assert writeoffs.iloc[0]["price"] == pytest.approx(10.0)
     # 到期日 01-04，卡满 3 天后于 01-07 核销
     assert writeoffs.iloc[0]["date"] == pd.Timestamp("2024-01-07")
+
+
+def test_frozen_value_counts_from_due_day_itself_not_next_day():
+    """卡仓从到期当天就该计入冻结，不能等到次日——独立审计发现的 off-by-one 回归用例。
+
+    构造：N=1、hold_days=1，到期当天(due_idx)恰好跌停卖不出、次日恢复正常卖出。
+    这样"被冻结"的窗口精确等于 1 天（到期当天），可以手算出 avg/max_frozen_pct
+    的精确值：如果到期当天没被计入（旧 bug：``due_idx >= i`` 把它跳过），
+    max_frozen_pct 会错误地停在 0；修复后应在到期当天精确记为满仓冻结。
+    """
+    dates6 = [f"2024-01-{d:02d}" for d in range(1, 7)]
+    close = {"A": [10.0, 10.0, 9.0, 10.0, 10.0, 10.0]}
+    limit_down = {"A": [9.0] * 6}          # 恰好第 3 天(index2)触发跌停顺延
+    wide = make_wide(
+        dates6, ["A"], close=close, limit_down=limit_down,
+        limit_up={"A": [999.0] * 6},
+    )
+    picks = picks_frame([("2024-01-01", "A")])
+    result = _run(
+        wide, picks, hold_days=1, n_buckets=1, entry_price="close", exit_price="close",
+        cost_buy=0.0, cost_sell=0.0, initial_value=1_000_000,
+    )
+
+    # 买入 01-02（信号 01-01 的 T+1），到期 01-03（index2）恰好跌停顺延，
+    # 01-04 恢复正常、成功卖出。全仓单票、N=1 → 到期当天冻结比例应接近 1.0。
+    assert result.exec_stats["max_frozen_pct"] == pytest.approx(1.0, abs=1e-6)
+    # 6 个交易日里只有 1 天（到期当天）处于冻结状态
+    assert result.exec_stats["avg_frozen_pct"] == pytest.approx(1.0 / 6, abs=1e-6)
