@@ -40,6 +40,7 @@ def calc_metrics(
         "ann_return": ann_return,
         "ann_vol": ann_vol,
         "sharpe": float(sharpe),
+        "risk_free": float(risk_free),
         "max_drawdown": mdd,
         "calmar": float(ann_return / mdd) if mdd > 1e-12 else 0.0,
         "win_rate_daily": float((ret > 0).mean()),
@@ -73,7 +74,8 @@ def calc_metrics(
 def equal_weight_benchmark(adj_close: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.Series:
     """全市场等权日收益基准：每日对当日有效收益的股票取截面均值。"""
     prices = adj_close.reindex(index=dates)
-    rets = prices.pct_change()
+    # 明确不填充缺失报价：不同 pandas 版本对 pct_change 的默认填充语义不同。
+    rets = prices.pct_change(fill_method=None)
     bm = rets.mean(axis=1, skipna=True).fillna(0.0)
     bm.name = "benchmark"
     return bm

@@ -3,3 +3,5 @@ __pycache__/
 output/
 .ruff_cache/
 *.egg-info/
+.coverage
+.pytest_cache/

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from hqpick.analysis.metrics import calc_metrics, equal_weight_benchmark
+from hqpick.analysis.periodic import yearly_stats
 from hqpick.analysis.report import ReportInputs, render_report, save_report
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.replay import PickBacktester
@@ -145,3 +146,21 @@ def test_html_escapes_untrusted_title(run_result):
     doc = render_report(_inputs(run_result, title='<img src=x onerror="alert(1)">'))
     assert "<img src=x" not in doc
     assert "&lt;img" in doc
+
+
+def test_report_uses_actual_nondefault_risk_free_for_yearly_sharpe(run_result):
+    result, _, bm, picks, cfg = run_result
+    risk_free = 0.11
+    metrics = calc_metrics(result.daily_ret, bm, risk_free)
+    expected = yearly_stats(result.daily_ret, bm, risk_free=risk_free).iloc[0]["Sharpe"]
+    default = yearly_stats(result.daily_ret, bm, risk_free=0.02).iloc[0]["Sharpe"]
+
+    doc = render_report(ReportInputs(
+        nav=result.nav, daily_ret=result.daily_ret, metrics=metrics,
+        exec_stats=result.exec_stats, trades=result.trades, config_label=cfg.label,
+        bm_nav=(1 + bm).cumprod(), picks=picks,
+        cost_buy=cfg.cost_buy, cost_sell=cfg.cost_sell,
+    ))
+
+    assert f"{expected:.2f}" in doc
+    assert f"{default:.2f}" not in doc

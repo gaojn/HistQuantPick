@@ -457,7 +457,10 @@ def _section_periodic(inp: ReportInputs) -> str:
     rt = build_round_trips(
         inp.trades, inp.cost_buy, inp.cost_sell, calendar=inp.nav.index
     )
-    bm_ret = inp.bm_nav.pct_change().fillna(0.0) if inp.bm_nav is not None else None
+    bm_ret = (
+        inp.bm_nav.pct_change(fill_method=None).fillna(0.0)
+        if inp.bm_nav is not None else None
+    )
     yearly = yearly_stats(
         inp.daily_ret, bm_ret, rt, inp.metrics.get("risk_free", 0.02)
     )

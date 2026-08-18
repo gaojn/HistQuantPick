@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -35,7 +36,7 @@ from hqpick.data.panel import WideFrames
 from hqpick.engine.capital import NO_FREE_SLOT, make_book
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.frames import AlignedFrames, align_frames
-from hqpick.engine.state import ReplayRecords, ReplayState
+from hqpick.engine.state import Bucket, ReplayRecords, ReplayState
 from hqpick.picks import check_code_overlap, normalize_frame
 
 TRADE_COLUMNS = [
@@ -104,7 +105,7 @@ class PickBacktester:
         trades = pd.DataFrame(records.trades, columns=TRADE_COLUMNS)
         return RunResult(
             nav=nav,
-            daily_ret=nav.pct_change().fillna(0.0),
+            daily_ret=nav.pct_change(fill_method=None).fillna(0.0),
             turnover=pd.Series(records.turnover, name="turnover", dtype=float),
             holding_counts=pd.Series(
                 records.holding_counts, name="holdings", dtype=float
@@ -363,34 +364,31 @@ class PickBacktester:
         return traded
 
     @staticmethod
-    def _stuck_value(frames: AlignedFrames, state: ReplayState, day, i: int) -> float:
+    def _bucket_value(frames: AlignedFrames, day, buckets: Iterable[Bucket]) -> float:
+        """给定桶集合的持仓市值（ffill 后的复权收盘价估值，从不 ffill 成交价）。"""
+        marked = frames.adj_close_marked.loc[day]
+        value = 0.0
+        for bucket in buckets:
+            for code, shares in bucket.holdings.items():
+                px = marked.get(code)
+                if pd.notna(px):
+                    value += shares * float(px)
+        return value
+
+    @classmethod
+    def _stuck_value(cls, frames: AlignedFrames, state: ReplayState, day, i: int) -> float:
         """已过到期日却仍未卖出的持仓市值——被停牌/跌停冻结的那部分资金。
 
         判定口径须与 ``_sell_due_buckets`` 一致（``due_idx <= i`` 即到期）：
         到期当天若卖出尝试已失败（跌停/停牌），当天收盘时就该计入冻结，
         不能等到次日才计入——否则每次卡仓都会少算最早的一天。
         """
-        marked = frames.adj_close_marked.loc[day]
-        value = 0.0
-        for bucket in state.book.buckets:
-            if bucket.due_idx > i:
-                continue
-            for code, shares in bucket.holdings.items():
-                px = marked.get(code)
-                if pd.notna(px):
-                    value += shares * float(px)
-        return value
+        due = (b for b in state.book.buckets if b.due_idx <= i)
+        return cls._bucket_value(frames, day, due)
 
-    @staticmethod
-    def _holdings_value(frames: AlignedFrames, state: ReplayState, day) -> float:
-        marked = frames.adj_close_marked.loc[day]
-        value = 0.0
-        for bucket in state.book.buckets:
-            for code, shares in bucket.holdings.items():
-                px = marked.get(code)
-                if pd.notna(px):
-                    value += shares * float(px)
-        return value
+    @classmethod
+    def _holdings_value(cls, frames: AlignedFrames, state: ReplayState, day) -> float:
+        return cls._bucket_value(frames, day, state.book.buckets)
 
     def _build_exec_stats(
         self,

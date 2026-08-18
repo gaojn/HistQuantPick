@@ -32,6 +32,7 @@ from hqpick.run import load_picks, run_backtest, save_artifacts
 from hqpick.signals import (
     build_limit_up_picks,
     build_lower_shadow_picks,
+    build_matched_random_baselines,
     build_random_picks,
 )
 
@@ -145,28 +146,46 @@ def cmd_grid(args: argparse.Namespace) -> None:
         },
     )
 
-    baseline = None
+    baseline_paths = None
     if args.baseline:
-        days = picks["date"].nunique()
-        n_per_day = max(1, round(len(picks) / days)) if days else 10
-        logger.info("生成随机基线：日均 %d 只，与策略同口径对照", n_per_day)
-        baseline = build_random_picks(
-            args.start, args.end, n_per_day=n_per_day, seed=args.seed,
-            cache_dir=args.cache_dir,
-        ).to_pandas()
+        logger.info(
+            "生成 %d 条匹配日程的随机基线：逐日复用策略选股数量",
+            args.baseline_sims,
+        )
+        baseline_paths = [
+            frame.to_pandas()
+            for frame in build_matched_random_baselines(
+                picks, n_paths=args.baseline_sims, seed=args.seed,
+                cache_dir=args.cache_dir,
+            )
+        ]
 
-    frame = run_grid(
+    result = run_grid(
         picks, args.start, args.end, spec,
-        baseline_picks=baseline, cache_dir=args.cache_dir,
+        baseline_picks=baseline_paths, cache_dir=args.cache_dir,
+        return_baseline_paths=args.baseline,
     )
+    if args.baseline:
+        frame, baseline_path_frame = result
+    else:
+        frame = result
+        baseline_path_frame = None
 
     out = Path(args.out or (DEFAULT_OUT_DIR / "grid_summary.csv"))
     out.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out, index=False)
+    if baseline_path_frame is not None:
+        baseline_path_frame["随机种子"] = (
+            baseline_path_frame["基线路径"].astype(int) + args.seed - 1
+        )
+        paths_out = out.with_name(f"{out.stem}_baseline_paths{out.suffix}")
+        baseline_path_frame.to_csv(paths_out, index=False)
 
     print()
     print(format_grid(frame))
     print(f"\n共 {len(frame)} 个配置 → {out}")
+    if baseline_path_frame is not None:
+        print(f"随机路径明细（{len(baseline_path_frame)} 行）→ {paths_out}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -248,7 +267,9 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--capital-mode", default="slots", help="逗号分隔，如 slots,shared")
     pg.add_argument("--writeoff-stuck-days", default="0", help="逗号分隔")
     pg.add_argument("--baseline", action="store_true",
-                    help="同口径跑一遍随机基线做对照（日均只数与策略一致）")
+                    help="运行匹配信号日程的多路径随机基线做对照")
+    pg.add_argument("--baseline-sims", type=int, default=500,
+                    help="随机基线路径数（默认 500；仅与 --baseline 一起使用）")
     pg.add_argument("--seed", type=int, default=42, help="随机基线种子")
     pg.add_argument("--cost-buy", type=float, default=DEFAULT_COST_BUY)
     pg.add_argument("--cost-sell", type=float, default=DEFAULT_COST_SELL)

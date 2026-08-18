@@ -48,18 +48,37 @@ def test_grid_runs_all_configs(wide, picks):
         assert col in frame.columns
 
 
-def test_grid_with_baseline_doubles_rows(wide, picks):
-    baseline = picks_frame([(d, "A") for d in DATES])
+def test_grid_with_matched_baseline_returns_distribution_summary(wide, picks):
+    baseline_paths = [
+        picks_frame([(d, c) for d in DATES for c in ("A", "B")]),
+        picks_frame([(d, c) for d in DATES for c in ("B", "A")]),
+    ]
     spec = GridSpec(hold_days=[2], n_buckets=[5])
-    frame = run_grid(
+    frame, paths = run_grid(
         picks, date(2024, 1, 1), date(2024, 1, 14), spec,
-        baseline_picks=baseline, wide=wide,
+        baseline_picks=baseline_paths, wide=wide, return_baseline_paths=True,
     )
 
     assert len(frame) == 2
     assert set(frame["策略"]) == {"策略", "随机基线"}
     # 同一配置下两行的口径必须完全一致，否则比的不是选股
     assert frame["config"].nunique() == 1
+    strategy = frame.loc[frame["策略"] == "策略"].iloc[0]
+    assert strategy["基线样本数"] == 2
+    assert 0.0 < strategy["年化经验p"] <= 1.0
+    assert len(paths) == 2
+    assert set(paths["基线路径"]) == {1, 2}
+
+
+def test_grid_rejects_baseline_with_different_schedule(wide, picks):
+    baseline = picks_frame([(d, "A") for d in DATES])
+
+    with pytest.raises(ValueError, match="信号日期或每日选股数"):
+        run_grid(
+            picks, date(2024, 1, 1), date(2024, 1, 14),
+            GridSpec(hold_days=[2], n_buckets=[5]),
+            baseline_picks=baseline, wide=wide,
+        )
 
 
 def test_larger_n_lowers_utilization(wide, picks):

@@ -53,12 +53,14 @@ python3 -m hqpick run --picks output/picks.parquet --start 2024-01-01 --end 2025
 扫参数并带随机基线对照（行情只加载一次）：
 
 ```bash
-python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 2,5,10 --baseline --start 2024-01-01 --end 2025-12-31
+python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-buckets 2,5,10 --baseline --baseline-sims 500 --start 2024-01-01 --end 2025-12-31
 ```
 
 自带三个信号生成器：`lower-shadow`（下影线放量，截面打分取前 N）、
 `limit-up`（T 日涨停，`--consecutive 2` 可要求连续两天涨停）、
-`random`（随机基线，用于判断策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出 `[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
+`random`（随机基线，用于判断策略超额是否只是执行规则或市场 beta 的假象）。网格的
+`--baseline` 会逐日复用策略的信号日和选股数量，并用多条随机路径给出分布，而不是以
+日均数量替代原始调仓日程。自有策略只需产出 `[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
 date 接受 datetime / `"2024-01-02"` / `"20240102"` / `20240102` 等形式（数值按
 YYYYMMDD 解释，不会被误读成 Unix 时间戳）；code 需带交易所后缀 `600000.SH`，
 缺后缀会在入口报错而不是静默空跑。

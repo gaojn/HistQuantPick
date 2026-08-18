@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from hqpick.analysis.metrics import calc_metrics, equal_weight_benchmark
 from hqpick.analysis.periodic import (
     month_of_year_stats,
     monthly_matrix,
@@ -120,3 +121,24 @@ def test_default_config_is_t1_open_to_t2_close_with_two_slots():
     assert cfg.exit_offset == 2
     assert cfg.buckets == 2               # 开盘买收盘卖 → H+1
     assert cfg.label == "T+1open_hold1_T+2close_b2slots"
+
+
+def test_metrics_record_actual_risk_free_rate():
+    ret = pd.Series([0.01, -0.005, 0.008], index=pd.bdate_range("2024-01-02", periods=3))
+
+    metrics = calc_metrics(ret, risk_free=0.07)
+
+    assert metrics["risk_free"] == pytest.approx(0.07)
+
+
+def test_equal_weight_benchmark_does_not_forward_fill_missing_quotes():
+    idx = pd.bdate_range("2024-01-02", periods=4)
+    prices = pd.DataFrame(
+        {"A": [10.0, 11.0, None, 13.0], "B": [10.0, 10.0, 10.0, 10.0]}, index=idx
+    )
+
+    benchmark = equal_weight_benchmark(prices, idx)
+
+    # A 在缺失报价后恢复时不能把两日累计涨幅记到恢复当日。
+    assert benchmark.iloc[2] == pytest.approx(0.0)
+    assert benchmark.iloc[3] == pytest.approx(0.0)

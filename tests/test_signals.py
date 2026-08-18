@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import polars as pl
 import pytest
 
 from hqpick.signals.limit_up import build_limit_up_picks
 from hqpick.signals.lower_shadow import build_lower_shadow_picks
+from hqpick.signals.random_pick import build_matched_random_baselines, build_random_picks
 
 DATES = [date(2024, 1, d) for d in range(1, 32)]
 
@@ -224,3 +226,84 @@ def test_limit_up_consecutive_three_days(tmp_path):
 def test_limit_up_consecutive_rejects_zero():
     with pytest.raises(ValueError, match="consecutive"):
         build_limit_up_picks(DATES[0], DATES[1], consecutive=0)
+
+
+def test_matched_random_baselines_reuse_each_signal_day_and_count(tmp_path):
+    """随机基线必须与策略逐日同频、同数量，不能退化成全区间日均抽样。"""
+    codes = ["A", "B", "C", "D", "E"]
+    days = DATES[:4]
+    cache = _write_cache(tmp_path, [_row(day, code) for day in days for code in codes])
+    reference = pd.DataFrame({
+        "date": [days[0], days[0], days[2], days[3], days[3], days[3]],
+        "code": ["A", "B", "C", "A", "B", "C"],
+    })
+
+    paths = build_matched_random_baselines(reference, n_paths=3, seed=7, cache_dir=cache)
+    rerun = build_matched_random_baselines(reference, n_paths=3, seed=7, cache_dir=cache)
+
+    expected = reference.groupby("date").size().sort_index()
+    expected.index = pd.to_datetime(expected.index)
+    assert len(paths) == 3
+    for path, repeated in zip(paths, rerun, strict=True):
+        frame = path.to_pandas()
+        actual = frame.groupby("date").size().sort_index()
+        assert list(actual.index.date) == list(expected.index.date)
+        assert actual.to_list() == expected.to_list()
+        assert frame["date"].nunique() == 3       # 第二天无信号，基线也不得交易
+        assert path.to_dicts() == repeated.to_dicts()
+
+
+def test_matched_random_baselines_reject_insufficient_daily_pool(tmp_path):
+    day = DATES[0]
+    cache = _write_cache(tmp_path, [_row(day, code) for code in ("A", "B")])
+    reference = pd.DataFrame({"date": [day] * 3, "code": ["A", "B", "C"]})
+
+    with pytest.raises(ValueError, match="不足以匹配"):
+        build_matched_random_baselines(reference, cache_dir=cache)
+
+
+def test_random_picks_samples_n_per_day_deterministically(tmp_path):
+    """每日恰好抽 n_per_day 只，来自当日股票池；同一 seed 结果可复现。"""
+    codes = ["A", "B", "C", "D", "E"]
+    days = DATES[:2]
+    cache = _write_cache(tmp_path, [_row(day, code) for day in days for code in codes])
+
+    picks = build_random_picks(days[0], days[-1], n_per_day=2, seed=7, cache_dir=cache)
+    rerun = build_random_picks(days[0], days[-1], n_per_day=2, seed=7, cache_dir=cache)
+
+    frame = picks.to_pandas()
+    assert frame.groupby("date").size().to_list() == [2, 2]
+    assert set(frame["code"]).issubset(set(codes))
+    assert picks.to_dicts() == rerun.to_dicts()
+
+
+def test_random_picks_takes_all_when_pool_smaller_than_n(tmp_path):
+    """当日可抽股票不足 n_per_day 时，有多少抽多少，不报错也不补足。"""
+    day = DATES[0]
+    cache = _write_cache(tmp_path, [_row(day, code) for code in ("A", "B")])
+
+    picks = build_random_picks(day, day, n_per_day=5, seed=1, cache_dir=cache)
+
+    assert sorted(picks["code"].to_list()) == ["A", "B"]
+
+
+def test_random_picks_excludes_st_and_next_new(tmp_path):
+    """exclude_st / min_list_days 生效，被过滤的票不会被抽到。"""
+    day = DATES[0]
+    rows = [
+        _row(day, "OK"),
+        _row(day, "ST_STOCK", is_st=1),
+        _row(day, "NEW_STOCK", list_days=10),
+    ]
+    cache = _write_cache(tmp_path, rows)
+
+    picks = build_random_picks(
+        day, day, n_per_day=5, exclude_st=True, min_list_days=120, cache_dir=cache,
+    )
+
+    assert picks["code"].to_list() == ["OK"]
+
+
+def test_random_picks_rejects_n_per_day_below_one():
+    with pytest.raises(ValueError, match="n_per_day"):
+        build_random_picks(DATES[0], DATES[1], n_per_day=0)
