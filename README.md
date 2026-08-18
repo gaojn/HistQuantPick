@@ -1,5 +1,7 @@
 # HistQuantPick
 
+[![CI](https://github.com/gaojn/HistQuantPick/actions/workflows/ci.yml/badge.svg)](https://github.com/gaojn/HistQuantPick/actions/workflows/ci.yml)
+
 A 股**选股列表回测引擎**：每日选出任意只数的股票，T+1 成交、持有 H 个交易日卖出，
 资金分桶重叠持仓。涨跌停、停牌、退市按贴近真实成交的规则处理。
 
