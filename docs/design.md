@@ -23,6 +23,7 @@ hqpick/
 │   ├── periodic.py        分年表现、月度收益矩阵、月份效应
 │   ├── exposure.py        行业与市值分布（按买入日截面）
 │   └── report.py          自包含 HTML 报告（内联 SVG 图表，零外部依赖）
+├── picks.py               选股表入口：date/code 归一化与防呆校验
 ├── grid.py                参数网格扫描：笛卡尔积展开 + 随机基线对照
 ├── run.py                 编排：加载 → 回测 → 落盘
 └── cli.py                 hqpick signal / run
@@ -66,6 +67,8 @@ picks [date, code]  ─┐
 
 - **不依赖 HistQuantOpt 的代码**，只共享行情缓存目录。执行规则靠文档与测试对齐，
   不靠 import——避免 opt 的优化器/风险模型依赖被拖进来。
+- **入口防呆**：选股表的两类静默失败（数值日期被当 Unix 戳、代码缺后缀）
+  在 `picks.py` 统一拦截。静默跑出一条恒为 1 的净值曲线比报错危险得多。
 - **前视防线在类型层**：`entry_offset ≥ 1` 在 `ExecConfig.__post_init__` 校验，
   构造非法配置直接报错，而不是回测跑完才发现。
 - **执行失败必须可见**：买入失败、卖出顺延、建仓不足都分类计数进 `exec_stats`，
@@ -80,6 +83,7 @@ picks [date, code]  ─┐
 | `tests/test_timing.py` | 买卖日偏移、H 与 entry_offset 组合、前视拦截、末尾信号不可执行 |
 | `tests/test_execution_rules.py` | 涨停买不进、跌停/停牌顺延、退市核销、停牌≠退市、非对称费率、每日只数可变 |
 | `tests/test_buckets.py` | 桶数推导、同日次序、建仓不足诊断、卖出提前到开盘可满仓 |
+| `tests/test_picks_io.py` | date 各形式（含 YYYYMMDD 数值）、混合格式、代码缺后缀的拦截 |
 | `tests/test_signals.py` | 信号口径与前视防线（均量不含当日、实体下沿、连板判定、各过滤条件、字段单位） |
 | `tests/test_exposure.py` | 市值分档、按买入日截面取值、未匹配剔除、行业折叠 |
 | `tests/test_periodic.py` | 月收益复利、矩阵缺月留空、超额口径、逐笔按买入年份归属、默认口径锁定 |

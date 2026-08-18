@@ -16,20 +16,11 @@ from hqpick.analysis.trades import build_round_trips
 from hqpick.data.panel import load_wide_frames
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.replay import PickBacktester, RunResult
+from hqpick.picks import load_picks, normalize_frame
 
 logger = logging.getLogger(__name__)
 
-
-def load_picks(path: str | Path) -> pd.DataFrame:
-    """读取选股长表（parquet / csv），只保留 [date, code]。"""
-    p = Path(path)
-    df = pd.read_csv(p) if p.suffix.lower() == ".csv" else pd.read_parquet(p)
-    if not {"date", "code"}.issubset(df.columns):
-        raise ValueError(f"选股文件须包含 [date, code] 列，当前列为 {list(df.columns)}")
-    out = df[["date", "code"]].copy()
-    out["date"] = pd.to_datetime(out["date"])
-    out["code"] = out["code"].astype(str)
-    return out.drop_duplicates().sort_values(["date", "code"]).reset_index(drop=True)
+__all__ = ["load_picks", "run_backtest", "save_artifacts"]
 
 
 def run_backtest(
@@ -45,8 +36,7 @@ def run_backtest(
     """
     if isinstance(picks, pl.DataFrame):
         picks = picks.to_pandas()
-    picks = picks.copy()
-    picks["date"] = pd.to_datetime(picks["date"])
+    picks = normalize_frame(picks)
     mask = (picks["date"] >= pd.Timestamp(start)) & (picks["date"] <= pd.Timestamp(end))
     picks = picks.loc[mask]
     if picks.empty:

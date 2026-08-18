@@ -58,8 +58,10 @@ python3 -m hqpick grid --picks output/picks.parquet --hold-days 1,2,5 --n-bucket
 
 自带三个信号生成器：`lower-shadow`（下影线放量，截面打分取前 N）、
 `limit-up`（T 日涨停，`--consecutive 2` 可要求连续两天涨停）、
-`random`（随机基线，用于判断策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出
-`[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
+`random`（随机基线，用于判断策略超额是否只是执行规则或市场 beta 的假象）。自有策略只需产出 `[date, code]` 长表（parquet/csv），`date` 是**信号日 T**。
+date 接受 datetime / `"2024-01-02"` / `"20240102"` / `20240102` 等形式（数值按
+YYYYMMDD 解释，不会被误读成 Unix 时间戳）；code 需带交易所后缀 `600000.SH`，
+缺后缀会在入口报错而不是静默空跑。
 
 ## 口径
 

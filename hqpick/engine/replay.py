@@ -36,6 +36,7 @@ from hqpick.engine.capital import NO_FREE_SLOT, make_book
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.frames import AlignedFrames, align_frames
 from hqpick.engine.state import ReplayRecords, ReplayState
+from hqpick.picks import check_code_overlap, normalize_frame
 
 TRADE_COLUMNS = [
     "date", "signal_date", "code", "side", "price", "shares", "notional",
@@ -58,14 +59,17 @@ class RunResult:
 def normalize_picks(
     picks: pd.DataFrame,
     calendar: pd.DatetimeIndex,
+    universe_codes=None,
 ) -> dict[pd.Timestamp, list[str]]:
-    """长表 [date, code] → {信号日: 代码列表}，并校验信号日落在交易日历内。"""
-    if not {"date", "code"}.issubset(picks.columns):
-        raise ValueError("选股表必须包含 [date, code] 两列")
-    frame = picks[["date", "code"]].copy()
-    frame["date"] = pd.to_datetime(frame["date"])
-    frame["code"] = frame["code"].astype(str)
-    frame = frame.drop_duplicates()
+    """长表 [date, code] → {信号日: 代码列表}。
+
+    date 支持 datetime / 字符串 / YYYYMMDD 数值，code 统一成字符串；
+    给了 ``universe_codes`` 时还会校验代码与行情面板对得上（防止缺后缀
+    导致的静默空回测）。信号日必须落在交易日历内。
+    """
+    frame = normalize_frame(picks)
+    if universe_codes is not None:
+        check_code_overlap(frame["code"], universe_codes)
 
     missing = pd.DatetimeIndex(frame["date"].unique()).difference(calendar)
     if not missing.empty:
@@ -84,7 +88,9 @@ class PickBacktester:
 
     def run(self, picks: pd.DataFrame, wide: WideFrames) -> RunResult:
         cfg = self.config
-        picks_map = normalize_picks(picks, wide.dates)
+        picks_map = normalize_picks(
+            picks, wide.dates, universe_codes=wide.adj["close"].columns
+        )
         if not picks_map:
             raise ValueError("选股表为空，无法回测")
 
