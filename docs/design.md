@@ -16,7 +16,8 @@ hqpick/
 ├── signals/
 │   ├── limit_up.py        T 日涨停 / 连续 N 日涨停信号
 │   ├── lower_shadow.py    下影线放量信号（截面打分取前 N）
-│   └── random_pick.py     随机基线信号
+│   ├── random_pick.py     随机基线信号
+│   └── reversal.py        短期反转族因子（研究模块，未接入 CLI/__init__，见 docs/实验记录.md）
 ├── analysis/
 │   ├── metrics.py         净值指标、等权基准
 │   ├── trades.py          成交流水 → 逐笔完整交易，胜率/赔率/分组统计
@@ -26,7 +27,7 @@ hqpick/
 ├── picks.py               选股表入口：date/code 归一化与防呆校验
 ├── grid.py                参数网格扫描：笛卡尔积展开 + 随机基线对照
 ├── run.py                 编排：加载 → 回测 → 落盘
-└── cli.py                 hqpick signal / run
+└── cli.py                 hqpick signal / run / grid
 ```
 
 ## 数据流
@@ -84,6 +85,7 @@ picks [date, code]  ─┐
 | `tests/test_execution_rules.py` | 涨停买不进、跌停/停牌顺延、退市核销、停牌≠退市、非对称费率、每日只数可变 |
 | `tests/test_buckets.py` | 桶数推导、同日次序、建仓不足诊断、卖出提前到开盘可满仓 |
 | `tests/test_picks_io.py` | date 各形式（含 YYYYMMDD 数值）、混合格式、代码缺后缀的拦截 |
+| `tests/test_reversal.py` | 反转因子口径（含当日/不含当日窗口）、截面过滤、universe 排除条件 |
 | `tests/test_signals.py` | 信号口径与前视防线（均量不含当日、实体下沿、连板判定、各过滤条件、字段单位） |
 | `tests/test_exposure.py` | 市值分档、按买入日截面取值、未匹配剔除、行业折叠 |
 | `tests/test_periodic.py` | 月收益复利、矩阵缺月留空、超额口径、逐笔按买入年份归属、默认口径锁定 |

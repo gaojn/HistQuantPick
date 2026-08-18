@@ -107,3 +107,4 @@ N 管单次下多重，资金利用率上限 (H+1)/N（实测约为其七成）�
 - [docs/操作指南.md](docs/操作指南.md) — 新成员必读，命令与参数
 - [docs/method.md](docs/method.md) — 口径、执行规则、资金分桶
 - [docs/design.md](docs/design.md) — 模块架构
+- [docs/实验记录.md](docs/实验记录.md) — 已测策略与结论，新想法开工前先看这份，避免重复验证已经证伪的假设
