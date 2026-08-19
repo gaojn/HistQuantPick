@@ -1,6 +1,7 @@
-"""A 股日频行情面板加载（与 HistQuantOpt 共享同一份 parquet 缓存）。
+"""A 股日频行情面板加载（只读本地年片 parquet）。
 
-缓存文件：``<cache_dir>/ashare_daily_<year>.parquet``。
+缓存文件：``<cache_dir>/ashare_daily_<year>.parquet``（默认
+``HistQuantPick/../cache/data``，可用 ``HQPICK_CACHE`` 覆盖）。
 ``limit_up`` / ``limit_down`` 直接用缓存真实字段，不在本模块推算。
 
 字段单位（易踩坑，已实测核对）::

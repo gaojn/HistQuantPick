@@ -7,6 +7,7 @@ import pytest
 from hqpick.analysis.metrics import calc_metrics, equal_weight_benchmark
 from hqpick.analysis.periodic import yearly_stats
 from hqpick.analysis.report import ReportInputs, render_report, save_report
+from hqpick.analysis.report import _NEGATIVE, _POSITIVE
 from hqpick.engine.config import ExecConfig
 from hqpick.engine.replay import PickBacktester
 from tests.helpers import make_wide, picks_frame
@@ -132,6 +133,17 @@ def test_report_handles_no_round_trips():
     ))
 
     assert "没有完整的往返交易" in doc
+
+
+def test_report_uses_cn_red_up_green_down(run_result):
+    """涨红跌绿（A 股习惯，与 histquant opt 一致）。"""
+    doc = render_report(_inputs(run_result))
+
+    assert f"--pos:{_POSITIVE}" in doc.replace(" ", "")
+    assert f"--neg:{_NEGATIVE}" in doc.replace(" ", "")
+    assert _POSITIVE in doc
+    assert _NEGATIVE in doc
+    assert 'class="pos"' in doc or "class=\"pos\"" in doc
 
 
 def test_save_report_writes_file(run_result, tmp_path):

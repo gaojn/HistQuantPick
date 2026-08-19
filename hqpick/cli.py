@@ -224,7 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="lower-shadow: 最低流通市值（亿元），0=不过滤")
     ps.add_argument("--min-list-days", type=int, default=120, help="最少上市天数，剔次新")
     ps.add_argument("--include-st", action="store_true", help="不剔除 ST")
-    ps.add_argument("--cache-dir", default=None, help="行情缓存目录，默认 HQPICK_CACHE")
+    ps.add_argument("--cache-dir", default=None,
+                    help="行情缓存目录，默认 ../cache/data 或 HQPICK_CACHE")
     ps.set_defaults(func=cmd_signal)
 
     pr = sub.add_parser("run", help="选股列表 → 回测")
@@ -253,7 +254,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--no-report", action="store_true", help="不生成 HTML 报告")
     pr.add_argument("--title", default=None, help="报告标题")
     pr.add_argument("--out-dir", default=None, help="产物目录，默认 output/<口径标签>")
-    pr.add_argument("--cache-dir", default=None, help="行情缓存目录，默认 HQPICK_CACHE")
+    pr.add_argument("--cache-dir", default=None,
+                    help="行情缓存目录，默认 ../cache/data 或 HQPICK_CACHE")
     pr.set_defaults(func=cmd_run)
 
     pg = sub.add_parser("grid", help="参数网格扫描（行情只加载一次）")
@@ -276,7 +278,8 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--initial-value", type=float, default=DEFAULT_INITIAL_VALUE)
     pg.add_argument("--risk-free", type=float, default=DEFAULT_RISK_FREE)
     pg.add_argument("--out", default=None, help="汇总 csv 路径，默认 output/grid_summary.csv")
-    pg.add_argument("--cache-dir", default=None)
+    pg.add_argument("--cache-dir", default=None,
+                    help="行情缓存目录，默认 ../cache/data 或 HQPICK_CACHE")
     pg.set_defaults(func=cmd_grid)
 
     return parser

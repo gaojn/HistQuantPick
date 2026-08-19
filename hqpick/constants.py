@@ -5,14 +5,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# 行情缓存目录：与 HistQuantOpt 共享同一份 parquet，不重复同步。
-# 可用环境变量 HQPICK_CACHE 覆盖。
-DEFAULT_CACHE_DIR = Path(
-    os.environ.get("HQPICK_CACHE", "~/quant_data/ashare_cache")
-).expanduser()
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = ROOT / "output"
+
+# 行情只读本地 ashare 年片：默认 workspace 的 cache/data（与本包同级目录）。
+# 仅共享数据目录，不 import 其他项目代码。可用 HQPICK_CACHE 覆盖。
+_DEFAULT_CACHE = ROOT.parent / "cache" / "data"
+DEFAULT_CACHE_DIR = Path(
+    os.environ.get("HQPICK_CACHE", str(_DEFAULT_CACHE))
+).expanduser()
 
 # 涨跌停判断容差（与 HistQuantOpt ExecutionLedger 同口径）
 LIMIT_UP_TOL = 0.999

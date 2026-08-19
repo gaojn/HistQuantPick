@@ -33,8 +33,9 @@ TE/行业/风格约束、指数增强              分桶重叠持仓、逐笔�
 pip install -e .
 ```
 
-需要 Python ≥ 3.10。行情缓存默认读 `~/quant_data/ashare_cache/ashare_daily_<year>.parquet`
-（与 HistQuantOpt 共用同一份，不重复同步），可用环境变量 `HQPICK_CACHE` 覆盖。
+需要 Python ≥ 3.10。行情缓存默认读本 workspace 的
+`../cache/data/ashare_daily_<year>.parquet`（与 HistQuantPick 目录同级的 `cache/data`），
+只读数据、不依赖其他项目代码；可用环境变量 `HQPICK_CACHE` 覆盖。
 
 ## 快速开始
 

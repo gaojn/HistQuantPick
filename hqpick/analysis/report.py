@@ -33,9 +33,22 @@ from hqpick.analysis.trades import (
     trade_stats,
 )
 
-_CSS = """
+# A 股习惯：涨红跌绿（与 histquant.optimize 报告一致）
+_POSITIVE = "#c0392b"
+_NEGATIVE = "#27ae60"
+_NEUTRAL = "#3498db"
+
+_CSS = (
+    """
 :root { --ink:#1a1a1a; --muted:#6b6b6b; --line:#e2e2de; --bg:#fff;
-        --pos:#1d9e75; --neg:#d84a3f; --accent:#2a78d6; }
+        --pos:"""
+    + _POSITIVE
+    + "; --neg:"
+    + _NEGATIVE
+    + "; --accent:"
+    + _NEUTRAL
+    + "; }\n"
+    + """
 * { box-sizing:border-box; }
 body { margin:0; padding:32px 24px 64px; background:var(--bg); color:var(--ink);
        font:15px/1.65 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; }
@@ -67,6 +80,7 @@ svg { display:block; max-width:100%; }
 figure { margin:12px 0 0; }
 figcaption { font-size:12px; color:var(--muted); margin-top:4px; }
 """
+)
 
 
 def _fmt_pct(v, digits: int = 2) -> str:
@@ -177,7 +191,7 @@ def _line_chart(
         pts = " ".join(
             f"{x(i):.1f},{y(float(v)):.1f}" for i, v in enumerate(s.to_numpy())
         )
-        color = colors.get(name, "#2a78d6")
+        color = colors.get(name, _NEUTRAL)
         parts.append(
             f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2" '
             f'stroke-linejoin="round"/>'
@@ -187,7 +201,7 @@ def _line_chart(
     legend = " ".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">'
         f'<span style="width:10px;height:10px;border-radius:2px;background:'
-        f'{colors.get(name, "#2a78d6")}"></span>{html.escape(name)}</span>'
+        f'{colors.get(name, _NEUTRAL)}"></span>{html.escape(name)}</span>'
         for name in series
     )
     return (
@@ -217,7 +231,7 @@ def _histogram(counts: np.ndarray, edges: np.ndarray, height: int = 200,
         h = plot_h * (float(c) / top)
         xx = pad_l + i * bw
         mid = (edges[i] + edges[i + 1]) / 2
-        color = "#1d9e75" if mid > 0 else "#d84a3f"
+        color = _POSITIVE if mid > 0 else _NEGATIVE
         parts.append(
             f'<rect x="{xx + 0.5:.1f}" y="{pad_t + plot_h - h:.1f}" '
             f'width="{max(bw - 1, 1):.1f}" height="{h:.1f}" fill="{color}" rx="1"/>'
@@ -245,17 +259,25 @@ def _histogram(counts: np.ndarray, edges: np.ndarray, height: int = 200,
 
 
 def _heat_cell(v, scale: float) -> str:
-    """月度矩阵单元格：正绿负红，深浅按 |v|/scale。"""
+    """月度矩阵单元格：涨红跌绿，深浅按 |v|/scale（口径同 histquant opt）。"""
     if v is None or (isinstance(v, float) and not np.isfinite(v)):
         return '<td class="na">—</td>'
     v = float(v)
     if abs(v) < 1e-12:
         return '<td class="heat">0.00%</td>'
-    alpha = min(abs(v) / scale, 1.0) * 0.42 if scale > 0 else 0.0
-    rgb = "29,158,117" if v > 0 else "216,74,63"
-    ink = "#0f6e56" if v > 0 else "#a32d2d"
+    intensity = min(abs(v) / scale, 1.0) if scale > 0 else 0.0
+    alpha = 0.15 + 0.65 * intensity
+    if v > 0:
+        r = int(192 + 63 * intensity)
+        rgb = f"{r},57,43"
+        ink = "#7b0000" if intensity > 0.5 else "#333"
+    else:
+        g = int(174 - 50 * intensity)
+        b = int(96 - 30 * intensity)
+        rgb = f"39,{g},{b}"
+        ink = "#004d00" if intensity > 0.5 else "#333"
     return (
-        f'<td class="heat" style="background:rgba({rgb},{alpha:.3f});color:{ink}">'
+        f'<td class="heat" style="background:rgba({rgb},{alpha:.2f});color:{ink}">'
         f"{v * 100:.2f}%</td>"
     )
 
@@ -279,7 +301,7 @@ def _matrix_table(matrix: pd.DataFrame) -> str:
 
 
 def _barh(labels: list[str], values: list[float], width: int = 1040,
-          row_h: int = 22, color: str = "#2a78d6") -> str:
+          row_h: int = 22, color: str = _NEUTRAL) -> str:
     """横向条形图：标签 + 条 + 数值，用于占比构成。"""
     if not labels:
         return ""
@@ -347,7 +369,8 @@ def _section_overview(inp: ReportInputs) -> str:
 
 def _section_nav(inp: ReportInputs) -> str:
     series = {"策略净值": inp.nav}
-    colors = {"策略净值": "#2a78d6", "基准（全市场等权）": "#9b9b96", "回撤": "#d84a3f"}
+    # 策略红、基准蓝（A 股习惯）；回撤用中性灰，避免与涨跌色混淆
+    colors = {"策略净值": _POSITIVE, "基准（全市场等权）": _NEUTRAL, "回撤": "#7f8c8d"}
     if inp.bm_nav is not None and len(inp.bm_nav):
         series["基准（全市场等权）"] = inp.bm_nav
     chart = _line_chart(series, colors=colors, baseline=1.0)
